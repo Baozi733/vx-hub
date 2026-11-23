@@ -645,10 +645,20 @@ local function buildWindow()
 		Parent = UI_PARENT,
 	}, nil)
 
+	-- 按屏幕大小自适应：手机竖屏窄，窗口不能写死 620x430
+	local vp = Vector2.new(1280, 720)
+	pcall(function()
+		if Workspace.CurrentCamera then vp = Workspace.CurrentCamera.ViewportSize end
+	end)
+	if vp.X <= 0 or vp.Y <= 0 then vp = Vector2.new(1280, 720) end
+	local winW = math.clamp(vp.X - 40, 300, 620)
+	local winH = math.clamp(vp.Y - 70, 260, 430)
+	local sidebarW = math.clamp(math.floor(winW * 0.30), 104, 154)
+
 	mainFrame = new("Frame", {
 		Name = "Main",
-		Size = UDim2.fromOffset(620, 430),
-		Position = UDim2.new(0.5, -310, 0.5, -215),
+		Size = UDim2.fromOffset(winW, winH),
+		Position = UDim2.new(0.5, -math.floor(winW / 2), 0.5, -math.floor(winH / 2)),
 		BackgroundColor3 = UI.bg,
 		BackgroundTransparency = 0.05,
 		BorderSizePixel = 0,
@@ -729,7 +739,7 @@ local function buildWindow()
 
 	-- 侧边栏
 	sidebar = new("Frame", {
-		Size = UDim2.new(0, 154, 1, -52),
+		Size = UDim2.new(0, sidebarW, 1, -52),
 		Position = UDim2.fromOffset(10, 44),
 		BackgroundTransparency = 1,
 		Parent = mainFrame,
@@ -741,8 +751,8 @@ local function buildWindow()
 	}, nil)
 
 	contentHolder = new("Frame", {
-		Size = UDim2.new(1, -186, 1, -52),
-		Position = UDim2.fromOffset(176, 44),
+		Size = UDim2.new(1, -(sidebarW + 32), 1, -52),
+		Position = UDim2.fromOffset(sidebarW + 22, 44),
 		BackgroundTransparency = 1,
 		Parent = mainFrame,
 	}, nil)
@@ -777,15 +787,16 @@ local function buildWindow()
 	-- 展开按钮
 	openButton = new("TextButton", {
 		Name = "OpenButton",
-		Size = UDim2.fromOffset(96, 34),
-		Position = UDim2.new(0, 20, 0.5, -17),
+		Size = UDim2.fromOffset(112, 44),
+		Position = UDim2.new(0, 16, 0.5, -22),
 		BackgroundColor3 = Color3.fromRGB(25, 25, 32),
 		BackgroundTransparency = 0.15,
 		BorderSizePixel = 0,
 		Text = "VX HUB",
 		TextColor3 = UI.accent,
 		Font = Enum.Font.GothamBold,
-		TextSize = 13,
+		TextSize = 15,
+		Active = true,
 		Visible = C.ui.showOpenButton,
 		Parent = gui,
 	}, nil)
@@ -804,18 +815,24 @@ local function buildWindow()
 		end
 	end)
 
-	-- 展开按钮拖动
-	local obDragging, obStart, obPos = false, nil, nil
+	-- 展开按钮拖动（手指和鼠标都要支持）
+	local obDragging, obStart, obPos, obMoved = false, nil, nil, false
 	openButton.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
 			obDragging = true
+			obMoved = false
 			obStart = input.Position
 			obPos = openButton.Position
 		end
 	end)
 	UserInputService.InputChanged:Connect(function(input)
-		if obDragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+		if obDragging and (input.UserInputType == Enum.UserInputType.MouseMovement
+			or input.UserInputType == Enum.UserInputType.Touch) then
 			local delta = input.Position - obStart
+			if math.abs(delta.X) > 4 or math.abs(delta.Y) > 4 then
+				obMoved = true
+			end
 			openButton.Position = UDim2.new(
 				obPos.X.Scale, obPos.X.Offset + delta.X,
 				obPos.Y.Scale, obPos.Y.Offset + delta.Y
@@ -823,7 +840,8 @@ local function buildWindow()
 		end
 	end)
 	UserInputService.InputEnded:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
 			obDragging = false
 		end
 	end)
@@ -923,10 +941,14 @@ local function buildEsp(player)
 
 	local tracerLine = nil
 	if DrawingLib then
-		tracerLine = DrawingLib.new("Line")
-		tracerLine.Thickness = 1
-		tracerLine.Transparency = 0.4
-		tracerLine.Visible = false
+		tracerLine = tryDrawing("Line")
+		if tracerLine then
+			pcall(function()
+				tracerLine.Thickness = 1
+				tracerLine.Transparency = 0.4
+				tracerLine.Visible = false
+			end)
+		end
 	end
 
 	local update = RunService.Heartbeat:Connect(function()
@@ -1029,29 +1051,47 @@ end)
 -- ============================================================
 local AimVisual = { circle = nil, lines = nil, tracer = nil }
 
+-- 手机执行器的 Drawing 库经常只支持部分类型，逐个试，失败就当没有
+local function tryDrawing(class)
+	if not DrawingLib then return nil end
+	local ok, obj = pcall(function() return DrawingLib.new(class) end)
+	if ok then return obj end
+	return nil
+end
+
 local function buildAimVisuals()
-	if not DrawingLib then return end
-	AimVisual.circle = DrawingLib.new("Circle")
-	AimVisual.circle.Filled = false
-	AimVisual.circle.NumSides = 60
-	AimVisual.circle.Thickness = 1.5
-	AimVisual.circle.Visible = false
+	AimVisual.circle = tryDrawing("Circle")
+	if AimVisual.circle then
+		pcall(function()
+			AimVisual.circle.Filled = false
+			AimVisual.circle.NumSides = 60
+			AimVisual.circle.Thickness = 1.5
+			AimVisual.circle.Visible = false
+		end)
+	end
 
-	AimVisual.tracer = DrawingLib.new("Line")
-	AimVisual.tracer.Thickness = 1.5
-	AimVisual.tracer.Transparency = 0.4
-	AimVisual.tracer.Visible = false
+	AimVisual.tracer = tryDrawing("Line")
+	if AimVisual.tracer then
+		pcall(function()
+			AimVisual.tracer.Thickness = 1.5
+			AimVisual.tracer.Transparency = 0.4
+			AimVisual.tracer.Visible = false
+		end)
+	end
 
-	local names = { "Top", "Bottom", "Left", "Right" }
 	AimVisual.lines = {}
-	for i = 1, #names do
-		local line = DrawingLib.new("Line")
-		line.Thickness = 2
-		line.Visible = false
-		AimVisual.lines[names[i]] = line
+	for _, name in ipairs({ "Top", "Bottom", "Left", "Right" }) do
+		local line = tryDrawing("Line")
+		if line then
+			pcall(function()
+				line.Thickness = 2
+				line.Visible = false
+			end)
+			AimVisual.lines[name] = line
+		end
 	end
 end
-buildAimVisuals()
+pcall(buildAimVisuals)
 
 local PartAliases = {
 	["Head"] = { "Head" },
@@ -1151,7 +1191,9 @@ RunService.RenderStepped:Connect(function(dt)
 
 	if not C.aim.enabled then return end
 
-	if C.aim.holdKey then
+	-- 手机没有右键，触屏设备上忽略「按住触发」，开了就一直生效
+	local touchOnly = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+	if C.aim.holdKey and not touchOnly then
 		local mouseDown = UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
 		local keyDown = UserInputService:IsKeyDown(Enum.KeyCode.E)
 		if not (mouseDown or keyDown) then return end
@@ -1418,7 +1460,7 @@ local function startFly()
 			local moveVector = controls and controls:GetMoveVector() or Vector3.zero
 			local dir = camera.CFrame.LookVector * -moveVector.Z + camera.CFrame.RightVector * moveVector.X
 			local vertical = 0
-			if UserInputService:IsKeyDown(Enum.KeyCode.Space) then vertical = 1 end
+			if UserInputService:IsKeyDown(Enum.KeyCode.Space) or (curHum and curHum.Jump) then vertical = 1 end
 			if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then vertical = -1 end
 			Move.bv.Velocity = (dir + Vector3.new(0, vertical, 0)) * C.player.flySpeed
 			Move.bg.CFrame = camera.CFrame
@@ -1434,7 +1476,7 @@ local function startFly()
 			local moveVector = controls and controls:GetMoveVector() or Vector3.zero
 			local dir = camera.CFrame.LookVector * -moveVector.Z + camera.CFrame.RightVector * moveVector.X
 			local vertical = 0
-			if UserInputService:IsKeyDown(Enum.KeyCode.Space) then vertical = 1 end
+			if UserInputService:IsKeyDown(Enum.KeyCode.Space) or (curHum and curHum.Jump) then vertical = 1 end
 			if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then vertical = -1 end
 			local delta = (dir + Vector3.new(0, vertical, 0)) * C.player.flySpeed * dt
 			curRoot.CFrame = curRoot.CFrame + delta
@@ -1737,7 +1779,7 @@ local function quickSwitch(config)
 	}, nil)
 
 	local button = new("TextButton", {
-		Size = UDim2.fromOffset(92, 34),
+		Size = UDim2.fromOffset(104, 40),
 		Position = config.position or UDim2.new(0, 20, 0.5, 40),
 		BackgroundColor3 = Color3.fromRGB(18, 18, 24),
 		BackgroundTransparency = 0.2,
@@ -1745,7 +1787,8 @@ local function quickSwitch(config)
 		Text = config.text or config.name,
 		TextColor3 = Color3.fromRGB(255, 90, 90),
 		Font = Enum.Font.GothamBold,
-		TextSize = 12,
+		TextSize = 13,
+		Active = true,
 		Parent = holder,
 	}, nil)
 	new("UICorner", { CornerRadius = UDim.new(0, 8), Parent = button }, nil)
@@ -1769,17 +1812,19 @@ local function quickSwitch(config)
 		api:setActive(nextState)
 	end)
 
-	-- 拖动
+	-- 拖动（手机手指 + 鼠标）
 	local dragging, startPos, dragStart = false, nil, nil
 	button.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
 			dragging = true
 			dragStart = input.Position
 			startPos = button.Position
 		end
 	end)
 	UserInputService.InputChanged:Connect(function(input)
-		if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
+			or input.UserInputType == Enum.UserInputType.Touch) then
 			local delta = input.Position - dragStart
 			button.Position = UDim2.new(
 				startPos.X.Scale, startPos.X.Offset + delta.X,
@@ -1788,7 +1833,8 @@ local function quickSwitch(config)
 		end
 	end)
 	UserInputService.InputEnded:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
 			dragging = false
 		end
 	end)
