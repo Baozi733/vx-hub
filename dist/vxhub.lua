@@ -196,6 +196,7 @@ local Defaults = {
 	-- 安全模式：让行为更像真人，降低被服务端记录的概率
 	safe = {
 		enabled = true,      -- 默认开
+		level = "标准",      -- 标准 / 极限（极限会强制压低一切可疑参数）
 		maxSpeed = 32,       -- 速度上限（服务端一般容忍 30~40）
 		teleportStep = 12,   -- 每次移动多少 stud
 		teleportGap = 0.05,  -- 每步间隔
@@ -203,6 +204,12 @@ local Defaults = {
 		rageSkipRate = 0.12, -- 随机漏打的概率
 		noGcScan = true,     -- 禁用 getgc 扫描类功能
 		ammoCap = 9999,      -- 子弹上限（替代 math.huge）
+		maxFov = 90,         -- 极限模式下自瞄 FOV 上限
+		tpBudget = 220,      -- 传送令牌桶：每 tpWindow 秒最多走这么多 stud
+		tpWindow = 2,
+		burstOn = 3.0,       -- 连打多少秒后强制休息
+		burstOff = 1.5,      -- 休息多久
+		panicKey = "P",      -- 急停键：一键关掉全部功能
 	},
 }
 
@@ -271,6 +278,39 @@ end
 C.safe.enabled = true
 
 -- ============================================================
+-- 「极限防封」策略
+--   把所有能触发服务端/行为检测的参数压到人类范围：
+--   限速更低、传送更碎、攻击更慢更随机、关掉所有自动化和 GC 扫描
+-- ============================================================
+local function isExtreme()
+	return C.safe.level == "极限"
+end
+
+local function applyProtectionLevel()
+	if not isExtreme() then return end
+	C.safe.maxSpeed = math.min(C.safe.maxSpeed or 32, 28)
+	C.safe.teleportStep = math.min(C.safe.teleportStep or 12, 8)
+	C.safe.teleportGap = math.max(C.safe.teleportGap or 0.05, 0.08)
+	C.safe.rageJitter = math.max(C.safe.rageJitter or 0.35, 0.4)
+	C.safe.rageSkipRate = math.max(C.safe.rageSkipRate or 0.12, 0.2)
+	C.safe.noGcScan = true
+	C.safe.ammoCap = math.min(C.safe.ammoCap or 9999, 300)
+
+	-- 关掉最容易被抓的功能
+	C.game.rapidFire = false
+	C.game.autoMission = false
+	C.game.autoCuff = false
+	C.game.autoPickup = false
+	C.hitbox.enabled = false
+
+	-- 战斗参数压到"像人"
+	C.aim.fov = math.min(C.aim.fov or 110, C.safe.maxFov or 90)
+	C.aim.prediction = false
+	C.rage.damage = 1
+	C.rage.interval = math.max(C.rage.interval or 0.08, 0.16)
+end
+
+-- ============================================================
 -- 4. 游戏适配层
 --    这里是与具体游戏耦合的部分。换游戏只改这一块。
 --    默认按 "Remote/PlayerEvent + PlayerScripts/Framework" 结构探测。
@@ -331,12 +371,35 @@ local function invokeFunc(...)
 	return nil
 end
 
+-- 传送令牌桶：极限模式下限制"单位时间能走多远"
+local TP = { budget = 0 }
+RunService.Heartbeat:Connect(function(dt)
+	local cap = C.safe.tpBudget or 220
+	local win = math.max(0.5, C.safe.tpWindow or 2)
+	TP.budget = math.min(cap, (TP.budget or 0) + cap * dt / win)
+end)
+
 -- 客户端传送：本地 PivotTo + 可选向服务端同步（不同游戏字段不同，改这里）
 -- 安全模式下改成"分几步走过去"，避免服务端看到瞬移
 local function teleportTo(position)
 	local char, _, root = getChar(LP)
 	if not char or not root or not position then return end
 	local target = position + Vector3.new(0, 3, 0)
+
+	-- 极限模式：令牌桶限速，短时间能走的距离有上限，避免"连续瞬移"被抓
+	if isExtreme() then
+		local from = root.Position
+		local delta = target - from
+		local distance = delta.Magnitude
+		local budget = TP.budget or 0
+		if budget < 2 then
+			return   -- 配额用光，这帧不动
+		end
+		if distance > budget then
+			target = from + delta.Unit * budget
+		end
+		TP.budget = math.max(0, budget - math.min(distance, budget))
+	end
 
 	if C.safe.enabled and C.safe.teleportStep and C.safe.teleportStep > 0 then
 		local from = root.Position
@@ -347,7 +410,11 @@ local function teleportTo(position)
 			local point = from:Lerp(target, i / steps)
 			pcall(function() root.CFrame = CFrame.new(point) end)
 			if i < steps then
-				task.wait(C.safe.teleportGap or 0.05)
+				local gap = C.safe.teleportGap or 0.05
+				if isExtreme() then
+					gap = gap * (0.8 + math.random() * 0.6)   -- 随机化，别做成等间隔
+				end
+				task.wait(gap)
 			end
 		end
 		return
@@ -1357,7 +1424,19 @@ local function makeBeam(fromPos, toPos, color)
 end
 
 task.spawn(function()
+	local burstStart = os.clock()
 	while true do
+		-- 极限模式：连打一段时间后强制休息，避免"持续稳定输出"这种机器特征
+		if isExtreme() and C.rage.enabled then
+			local onTime = C.safe.burstOn or 3.0
+			if os.clock() - burstStart > onTime then
+				task.wait((C.safe.burstOff or 1.5) + math.random() * 0.8)
+				burstStart = os.clock()
+			end
+		elseif not C.rage.enabled then
+			burstStart = os.clock()
+		end
+
 		if C.rage.enabled and Game.event then
 			-- 安全模式：随机漏打 + 间隔浮动，别做成"每 80ms 精准一次"
 			local skip = C.safe.enabled and math.random() < (C.safe.rageSkipRate or 0.12)
@@ -1378,10 +1457,22 @@ task.spawn(function()
 									pass = visibleBetween(myPos, root.Position, { LP.Character })
 								end
 								if pass then
+									-- 极限模式：命中部位随机化，别每一枪都打头
+									local partName = PartAliases[C.rage.part] and PartAliases[C.rage.part][1] or "Head"
+									if isExtreme() then
+										local roll = math.random()
+										if roll < 0.45 then
+											partName = "Head"
+										elseif roll < 0.85 then
+											partName = "UpperTorso"
+										else
+											partName = "LeftUpperArm"
+										end
+									end
 									pcall(function()
-										sendDamage(player, PartAliases[C.rage.part] and PartAliases[C.rage.part][1] or "Head", C.rage.damage)
+										sendDamage(player, partName, C.rage.damage)
 									end)
-									if C.rage.beam then
+									if C.rage.beam and not isExtreme() then
 										makeBeam(myPos, root.Position)
 									end
 								end
@@ -2027,6 +2118,32 @@ end
 -- ============================================================
 -- 14. 菜单装配
 -- ============================================================
+-- 急停：一键关掉全部功能（默认按 P）
+local function panicKill()
+	C.esp.enabled = false
+	C.aim.enabled = false
+	C.rage.enabled = false
+	C.hitbox.enabled = false
+	C.player.speedOn = false
+	C.player.jumpOn = false
+	C.player.infJump = false
+	C.player.flyOn = false
+	C.player.noclip = false
+	C.game.infiniteAmmo = false
+	C.game.rapidFire = false
+	C.game.autoPickup = false
+	C.game.autoMission = false
+	C.game.autoCuff = false
+	pcall(stopSpeed)
+	pcall(stopJump)
+	pcall(stopFly)
+	pcall(stopNoclip)
+	pcall(clearAllHitbox)
+	pcall(refreshEsp)
+	if mainFrame then mainFrame.Visible = false end
+	notify("急停：全部功能已关闭")
+end
+
 local function buildMenu()
 	buildWindow()
 
@@ -2219,7 +2336,21 @@ local function buildMenu()
 
 	-- ---- 安全 ----
 	page = UI.tab("安全")
-	UI.label(page, "安全模式 = 让行为更像真人：限速、分段移动、攻击随机化、少用高危 API。\n它降低被记录的几率，但绕不过服务端对位置/伤害的硬校验。", 54)
+	UI.label(page, "「极限」会把速度压到 28、传送切成 8 格一步、攻击变慢变随机、\n关掉自动化和 GC 扫描。它挡得住行为检测，挡不住客户端注入检测。", 54)
+	UI.dropdown(page, "防护强度", { "标准", "极限" }, function() return C.safe.level end, function(v)
+		C.safe.level = v
+		applyProtectionLevel()
+		saveConfig()
+		if v == "极限" then
+			notify("已切到极限：速度≤28，传送分段，攻击加随机，自动化全关")
+		else
+			notify("已切回标准模式")
+		end
+	end)
+	UI.button(page, "急停：一键关闭全部功能（P 键）", function()
+		panicKill()
+	end)
+	UI.label(page, "连打自动休息：" .. tostring(C.safe.burstOn) .. " 秒后停 1.5~2 秒，避免机器特征", 20)
 	UI.toggle(page, "安全模式总开关", function() return C.safe.enabled end, function(v)
 		C.safe.enabled = v
 		UI.syncToggle("safeMode", v)
@@ -2306,8 +2437,20 @@ if mainFrame then
 	mainFrame.Visible = true
 end
 
+-- 若上次保存的是「极限」，启动时立刻把参数压一遍
+pcall(applyProtectionLevel)
+
+-- 急停键：任何时候按一下立刻全关
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then return end
+	local key = C.safe.panicKey or "P"
+	if input.KeyCode == Enum.KeyCode[key] then
+		pcall(panicKill)
+	end
+end)
+
 if C.ui.autoReport then
 	report()
 end
 
-notify("加载完成 | 按键 " .. C.ui.openKey .. " 开关菜单")
+notify("加载完成 | " .. C.ui.openKey .. " 菜单 · " .. (C.safe.panicKey or "P") .. " 急停 · 防护=" .. tostring(C.safe.level))
