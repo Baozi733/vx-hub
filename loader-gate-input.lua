@@ -67,14 +67,88 @@ local function recallKey()
 end
 
 -- ============ 主程序加载 ============
+-- 出错时把错误直接弹在屏幕上（手机上看不到控制台输出）
+local function showError(title, msg)
+	local g = Instance.new("ScreenGui")
+	g.Name = "VXError"
+	g.ResetOnSpawn = false
+	g.IgnoreGuiInset = true
+	g.DisplayOrder = 10002
+	local okp = pcall(function() g.Parent = game:GetService("CoreGui") end)
+	if not okp then
+		pcall(function() g.Parent = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui") end)
+	end
+
+	local f = Instance.new("Frame")
+	f.Size = UDim2.new(0.94, 0, 0.6, 0)
+	f.Position = UDim2.new(0.03, 0, 0.18, 0)
+	f.BackgroundColor3 = Color3.fromRGB(20, 12, 14)
+	f.BorderSizePixel = 0
+	f.Parent = g
+	local cr = Instance.new("UICorner")
+	cr.CornerRadius = UDim.new(0, 10)
+	cr.Parent = f
+
+	local t = Instance.new("TextLabel")
+	t.Size = UDim2.new(1, -20, 0, 28)
+	t.Position = UDim2.new(0, 12, 0, 10)
+	t.BackgroundTransparency = 1
+	t.Font = Enum.Font.GothamBold
+	t.TextSize = 16
+	t.TextColor3 = Color3.fromRGB(255, 120, 120)
+	t.TextXAlignment = Enum.TextXAlignment.Left
+	t.Text = title
+	t.Parent = f
+
+	local sc = Instance.new("ScrollingFrame")
+	sc.Size = UDim2.new(1, -20, 1, -92)
+	sc.Position = UDim2.new(0, 12, 0, 42)
+	sc.BackgroundTransparency = 1
+	sc.BorderSizePixel = 0
+	sc.ScrollBarThickness = 4
+	sc.CanvasSize = UDim2.new(0, 0, 0, 0)
+	sc.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	sc.Parent = f
+
+	local body = Instance.new("TextLabel")
+	body.Size = UDim2.new(1, -8, 0, 0)
+	body.AutomaticSize = Enum.AutomaticSize.Y
+	body.BackgroundTransparency = 1
+	body.Font = Enum.Font.Code
+	body.TextSize = 13
+	body.TextWrapped = true
+	body.TextXAlignment = Enum.TextXAlignment.Left
+	body.TextYAlignment = Enum.TextYAlignment.Top
+	body.TextColor3 = Color3.fromRGB(230, 230, 240)
+	body.Text = tostring(msg)
+	body.Parent = sc
+
+	local b = Instance.new("TextButton")
+	b.Size = UDim2.new(1, -20, 0, 40)
+	b.Position = UDim2.new(0, 12, 1, -50)
+	b.BackgroundColor3 = Color3.fromRGB(60, 130, 255)
+	b.BorderSizePixel = 0
+	b.Font = Enum.Font.GothamBold
+	b.TextSize = 15
+	b.TextColor3 = Color3.new(1, 1, 1)
+	b.Text = "关闭"
+	b.Parent = f
+	local bc = Instance.new("UICorner")
+	bc.CornerRadius = UDim.new(0, 8)
+	bc.Parent = b
+	b.MouseButton1Click:Connect(function() g:Destroy() end)
+end
+
 local function runScript(body, key)
 	local chunk, err = loadstring(body)
 	if not chunk then
-		return false, "编译失败：" .. tostring(err)
+		return false, "编译失败（脚本文件有问题）：\n" .. tostring(err)
 	end
 	local ok, runErr = pcall(chunk, key)
 	if not ok then
-		return false, "运行异常：" .. tostring(runErr)
+		local tb = ""
+		pcall(function() tb = debug.traceback() end)
+		return false, "运行出错（主程序崩了）：\n" .. tostring(runErr) .. "\n\n" .. tb
 	end
 	return true
 end
@@ -246,7 +320,7 @@ local function buildLogin(onDone)
 			gui:Destroy()
 			local ran, err = runScript(data, key)
 			if not ran then
-				warn("[VX] " .. tostring(err))
+				showError("VX 启动失败", err)
 			end
 			onDone(ran)
 		end)
@@ -272,11 +346,11 @@ if PRESET ~= "" then
 	-- 命令里已经给了卡密，直接验证，不弹框
 	exchange(PRESET, function(ok, data)
 		if not ok then
-			warn("[VX] " .. tostring(data))
+			showError("卡密验证失败", tostring(data))
 			return
 		end
 		local ran, err = runScript(data, PRESET)
-		if not ran then warn("[VX] " .. tostring(err)) end
+		if not ran then showError("VX 启动失败", err) end
 	end)
 else
 	buildLogin(function() end)
