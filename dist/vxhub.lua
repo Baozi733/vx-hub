@@ -193,6 +193,17 @@ local Defaults = {
 	meta = {
 		borderRainbow = true, borderEnabled = true, borderColor = "青",
 	},
+	-- 安全模式：让行为更像真人，降低被服务端记录的概率
+	safe = {
+		enabled = true,      -- 默认开
+		maxSpeed = 32,       -- 速度上限（服务端一般容忍 30~40）
+		teleportStep = 12,   -- 每次移动多少 stud
+		teleportGap = 0.05,  -- 每步间隔
+		rageJitter = 0.35,   -- 攻击间隔随机浮动比例
+		rageSkipRate = 0.12, -- 随机漏打的概率
+		noGcScan = true,     -- 禁用 getgc 扫描类功能
+		ammoCap = 9999,      -- 子弹上限（替代 math.huge）
+	},
 }
 
 local function deepCopy(t)
@@ -292,10 +303,28 @@ local function invokeFunc(...)
 end
 
 -- 客户端传送：本地 PivotTo + 可选向服务端同步（不同游戏字段不同，改这里）
+-- 安全模式下改成"分几步走过去"，避免服务端看到瞬移
 local function teleportTo(position)
 	local char, _, root = getChar(LP)
 	if not char or not root or not position then return end
-	local cf = CFrame.new(position + Vector3.new(0, 3, 0))
+	local target = position + Vector3.new(0, 3, 0)
+
+	if C.safe.enabled and C.safe.teleportStep and C.safe.teleportStep > 0 then
+		local from = root.Position
+		local distance = (target - from).Magnitude
+		local stepSize = math.max(4, C.safe.teleportStep)
+		local steps = math.clamp(math.ceil(distance / stepSize), 1, 80)
+		for i = 1, steps do
+			local point = from:Lerp(target, i / steps)
+			pcall(function() root.CFrame = CFrame.new(point) end)
+			if i < steps then
+				task.wait(C.safe.teleportGap or 0.05)
+			end
+		end
+		return
+	end
+
+	local cf = CFrame.new(target)
 	pcall(function() char:PivotTo(cf) end)
 	pcall(function()
 		local id = ((char:GetAttribute("PivotId") or 0) + 1) % 100
@@ -1263,8 +1292,10 @@ end
 task.spawn(function()
 	while true do
 		if C.rage.enabled and Game.event then
+			-- 安全模式：随机漏打 + 间隔浮动，别做成"每 80ms 精准一次"
+			local skip = C.safe.enabled and math.random() < (C.safe.rageSkipRate or 0.12)
 			local _, _, myRoot = getChar(LP)
-			if myRoot then
+			if myRoot and not skip then
 				local myPos = myRoot.Position
 				for _, player in ipairs(Players:GetPlayers()) do
 					local ok = player ~= LP and isAlive(player)
@@ -1293,7 +1324,18 @@ task.spawn(function()
 				end
 			end
 		end
-		task.wait(C.rage.interval or 0.1)
+		-- 等待时间：安全模式下随机浮动，看起来像人在打
+		local baseInterval = C.rage.interval or 0.1
+		local waitTime = baseInterval
+		if C.safe.enabled then
+			local jitter = C.safe.rageJitter or 0.35
+			waitTime = baseInterval * (1 - jitter + math.random() * jitter * 2)
+			if math.random() < 0.1 then
+				waitTime = waitTime + 0.25
+			end
+			waitTime = math.max(waitTime, 0.06)
+		end
+		task.wait(waitTime)
 	end
 end)
 
@@ -1411,7 +1453,12 @@ local function startSpeed()
 	Move.speedConn = RunService.Heartbeat:Connect(function()
 		local _, hum = getChar(LP)
 		if hum and C.player.speedOn then
-			hum.WalkSpeed = C.player.speed
+			-- 安全模式：不要超过服务端容忍阈值，否则会被拉回/记录
+			local limit = C.player.speed
+			if C.safe.enabled then
+				limit = math.min(limit, C.safe.maxSpeed or 32)
+			end
+			hum.WalkSpeed = limit
 		end
 	end)
 end
@@ -1587,26 +1634,30 @@ RunService.Heartbeat:Connect(function()
 	local folder = Workspace:FindFirstChild("Characters")
 	folder = folder and folder:FindFirstChild(LP.Name)
 	if not folder then return end
+	-- 安全模式下不用 math.huge（这种值最容易在日志里露馅）
+	local cap = C.safe.enabled and (C.safe.ammoCap or 9999) or math.huge
 	for _, gun in ipairs(folder:GetChildren()) do
 		local cfg = gun:FindFirstChild("Config")
 		if cfg then
 			local ammo = cfg:FindFirstChild("Ammo")
 			local total = cfg:FindFirstChild("TotalAmmo")
-			if ammo then pcall(function() ammo.Value = math.huge end) end
-			if total then pcall(function() total.Value = math.huge end) end
+			if ammo then pcall(function() ammo.Value = cap end) end
+			if total then pcall(function() total.Value = cap end) end
 		end
 	end
 end)
 
 -- 快速射击（扫描 GC 中的武器配置表）
+-- 安全模式下默认不跑：getgc 全量扫描在手机上既卡又容易被行为检测盯上
 local function applyRapidFire()
 	if not C.game.rapidFire then return end
+	if C.safe.enabled and C.safe.noGcScan then return end
 	if type(getgc) ~= "function" then return end
 	local ok = pcall(function()
 		for _, tbl in pairs(getgc(true)) do
 			if type(tbl) == "table" then
 				if rawget(tbl, "RPM") ~= nil then
-					rawset(tbl, "RPM", math.huge)
+					rawset(tbl, "RPM", C.safe.enabled and 900 or math.huge)
 				end
 				if rawget(tbl, "SHOOT_MODE") ~= nil then
 					rawset(tbl, "SHOOT_MODE", 2)
@@ -2088,6 +2139,52 @@ local function buildMenu()
 		saveConfig()
 		notify("配置已保存")
 	end)
+
+	-- ---- 安全 ----
+	page = UI.tab("安全")
+	UI.label(page, "安全模式 = 让行为更像真人：限速、分段移动、攻击随机化、少用高危 API。\n它降低被记录的几率，但绕不过服务端对位置/伤害的硬校验。", 54)
+	UI.toggle(page, "安全模式总开关", function() return C.safe.enabled end, function(v)
+		C.safe.enabled = v
+		if v then
+			notify("安全模式开启：速度上限 " .. tostring(C.safe.maxSpeed) .. "，传送改为分段")
+		else
+			notify("安全模式关闭：功能全开，被封风险上升")
+		end
+	end)
+	UI.slider(page, "速度上限", 16, 80, 1, function() return C.safe.maxSpeed end, function(v)
+		C.safe.maxSpeed = v
+	end)
+	UI.slider(page, "传送每步距离", 4, 60, 2, function() return C.safe.teleportStep end, function(v)
+		C.safe.teleportStep = v
+	end)
+	UI.slider(page, "传送步间隔(秒)", 0.01, 0.3, 0.01, function() return C.safe.teleportGap end, function(v)
+		C.safe.teleportGap = v
+	end)
+	UI.slider(page, "攻击间隔抖动", 0, 0.8, 0.05, function() return C.safe.rageJitter end, function(v)
+		C.safe.rageJitter = v
+	end)
+	UI.slider(page, "随机漏打比例", 0, 0.5, 0.02, function() return C.safe.rageSkipRate end, function(v)
+		C.safe.rageSkipRate = v
+	end)
+	UI.toggle(page, "禁用 GC 扫描功能", function() return C.safe.noGcScan end, function(v)
+		C.safe.noGcScan = v
+	end)
+	UI.slider(page, "子弹上限", 100, 99999, 100, function() return C.safe.ammoCap end, function(v)
+		C.safe.ammoCap = v
+	end)
+	UI.button(page, "恢复安全默认值", function()
+		C.safe.enabled = true
+		C.safe.maxSpeed = 32
+		C.safe.teleportStep = 12
+		C.safe.teleportGap = 0.05
+		C.safe.rageJitter = 0.35
+		C.safe.rageSkipRate = 0.12
+		C.safe.noGcScan = true
+		C.safe.ammoCap = 9999
+		saveConfig()
+		notify("已恢复默认（重开菜单生效）")
+	end)
+	UI.label(page, "建议：平时只开透视；打架时开自瞄不开 Rage；速度别过 40；不要连续瞬移。", 40)
 end
 
 -- ============================================================
