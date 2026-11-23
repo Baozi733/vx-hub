@@ -268,14 +268,25 @@ pcall(function()
 	Game.ragdoll = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Ragdoll"))
 end)
 
+local unpackFn = table.unpack or unpack
+
 local function fireEvent(...)
 	if not Game.event then return end
-	pcall(function() Game.event:FireServer(...) end)
+	-- 注意：'...' 不能直接写进内层普通函数里，先收集再传
+	local args = { ... }
+	local count = select("#", ...)
+	pcall(function()
+		Game.event:FireServer(unpackFn(args, 1, count))
+	end)
 end
 
 local function invokeFunc(...)
 	if not Game.func then return nil end
-	local ok, res = pcall(function() return Game.func:InvokeServer(...) end)
+	local args = { ... }
+	local count = select("#", ...)
+	local ok, res = pcall(function()
+		return Game.func:InvokeServer(unpackFn(args, 1, count))
+	end)
 	if ok then return res end
 	return nil
 end
