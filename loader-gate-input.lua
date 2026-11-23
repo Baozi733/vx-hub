@@ -67,6 +67,15 @@ local function recallKey()
 end
 
 -- ============ 主程序加载 ============
+-- 网关会在脚本前面加一行标记，这里统一剥掉。
+-- 旧版网关用的标记不是合法 Lua 注释，不剥掉会编译失败（Malformed number）。
+local function stripBanner(src)
+	src = src:gsub("^\239\187\191", "")                                  -- BOM
+	src = src:gsub("^%-%-%[%[VX%-GATE%]%][^\r\n]*\r?\n", "", 1)          -- 旧格式
+	src = src:gsub("^%-%- VX%-GATE[^\r\n]*\r?\n", "", 1)                 -- 新格式
+	return src
+end
+
 -- 出错时把错误直接弹在屏幕上（手机上看不到控制台输出）
 local function showError(title, msg)
 	local g = Instance.new("ScreenGui")
@@ -140,6 +149,7 @@ local function showError(title, msg)
 end
 
 local function runScript(body, key)
+	body = stripBanner(body)
 	local chunk, err = loadstring(body)
 	if not chunk then
 		return false, "编译失败（脚本文件有问题）：\n" .. tostring(err)
