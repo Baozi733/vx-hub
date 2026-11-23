@@ -242,6 +242,35 @@ end
 loadConfig()
 
 -- ============================================================
+-- 启动强制策略：所有功能一律关闭，只保留安全模式
+--   配置文件会记住上次状态；不强制清掉的话，上次开了透视/飞行，
+--   下次一进游戏就是开着的，容易出事。子选项（颜色/距离等）保留。
+-- ============================================================
+local ForceOff = {
+	esp = { "enabled" },
+	aim = { "enabled" },
+	rage = { "enabled" },
+	hitbox = { "enabled" },
+	player = { "speedOn", "jumpOn", "infJump", "flyOn", "noclip" },
+	game = {
+		"stamina", "hunger", "combatBlock", "noRagdoll", "noFallDamage",
+		"infiniteAmmo", "rapidFire", "autoPickup", "autoMission", "autoCuff",
+	},
+}
+for section, keys in pairs(ForceOff) do
+	if type(C[section]) == "table" then
+		for _, key in ipairs(keys) do
+			if C[section][key] ~= nil then
+				C[section][key] = false
+			end
+		end
+	end
+end
+
+-- 安全模式始终默认开启（想关就在菜单里点，本次会话有效）
+C.safe.enabled = true
+
+-- ============================================================
 -- 4. 游戏适配层
 --    这里是与具体游戏耦合的部分。换游戏只改这一块。
 --    默认按 "Remote/PlayerEvent + PlayerScripts/Framework" 结构探测。
@@ -375,6 +404,7 @@ local UI = {
 	text = Color3.fromRGB(235, 235, 240),
 	dim = Color3.fromRGB(150, 150, 165),
 	rainbowStroke = nil,
+	toggleSync = {},   -- 同名开关联动：key -> { 推送函数 }
 }
 
 local function new(class, props, parent)
@@ -459,7 +489,7 @@ local function rowFrame(parent, height)
 	return frame
 end
 
-function UI.toggle(parent, text, get, set)
+function UI.toggle(parent, text, get, set, syncKey)
 	local frame = rowFrame(parent, 34)
 	new("TextLabel", {
 		Size = UDim2.new(1, -70, 1, 0),
@@ -498,6 +528,16 @@ function UI.toggle(parent, text, get, set)
 	end
 	render()
 
+	-- 同名开关联动：主页和设置页各放一个，改哪个另一个都跟着动
+	local function push(v)
+		state = v and true or false
+		render()
+	end
+	if syncKey then
+		UI.toggleSync[syncKey] = UI.toggleSync[syncKey] or {}
+		table.insert(UI.toggleSync[syncKey], push)
+	end
+
 	local click = new("TextButton", {
 		Size = UDim2.fromScale(1, 1),
 		BackgroundTransparency = 1,
@@ -509,9 +549,23 @@ function UI.toggle(parent, text, get, set)
 		render()
 		local ok, err = pcall(set, state)
 		if not ok then warn(TAG .. "toggle 回调异常: " .. tostring(err)) end
+		if syncKey then
+			for _, other in ipairs(UI.toggleSync[syncKey] or {}) do
+				if other ~= push then
+					pcall(other, state)
+				end
+			end
+		end
 		saveConfig()
 	end)
 	return frame
+end
+
+-- 供外部推送状态（比如主页开关要顺带点亮设置页那个）
+function UI.syncToggle(key, value)
+	for _, other in ipairs(UI.toggleSync[key] or {}) do
+		pcall(other, value)
+	end
 end
 
 function UI.slider(parent, text, min, max, step, get, set)
@@ -667,6 +721,27 @@ function UI.label(parent, text, height)
 	return frame
 end
 
+-- 边框外观统一入口：主页 / 设置 / 安全 各处开关都调它，避免样式不一致
+local RAINBOW_SEQ = ColorSequence.new({
+	ColorSequenceKeypoint.new(0, Color3.fromHex("FF1493")),
+	ColorSequenceKeypoint.new(0.25, Color3.fromHex("FFD700")),
+	ColorSequenceKeypoint.new(0.5, Color3.fromHex("00FFAA")),
+	ColorSequenceKeypoint.new(0.75, Color3.fromHex("00BFFF")),
+	ColorSequenceKeypoint.new(1, Color3.fromHex("FF1493")),
+})
+
+local function applyBorder()
+	local s = UI.rainbowStroke
+	if not s or not s.stroke then return end
+	s.stroke.Enabled = C.meta.borderEnabled and true or false
+	if C.meta.borderRainbow then
+		s.gradient.Color = RAINBOW_SEQ
+	else
+		s.gradient.Color = ColorSequence.new(colorOf(C.meta.borderColor))
+	end
+	s.stroke.Thickness = C.meta.borderEnabled and 2 or 0
+end
+
 local function buildWindow()
 	-- 重复执行/二次构建时先清掉旧 UI，避免叠加
 	if gui then
@@ -716,23 +791,15 @@ local function buildWindow()
 	}, nil)
 	local gradient = new("UIGradient", { Name = "BorderGradient", Parent = stroke }, nil)
 	UI.rainbowStroke = { stroke = stroke, gradient = gradient }
-	if C.meta.borderRainbow then
-		gradient.Color = ColorSequence.new({
-			ColorSequenceKeypoint.new(0, Color3.fromHex("FF1493")),
-			ColorSequenceKeypoint.new(0.25, Color3.fromHex("FFD700")),
-			ColorSequenceKeypoint.new(0.5, Color3.fromHex("00FFAA")),
-			ColorSequenceKeypoint.new(0.75, Color3.fromHex("00BFFF")),
-			ColorSequenceKeypoint.new(1, Color3.fromHex("FF1493")),
-		})
-		RunService.Heartbeat:Connect(function()
-			if gradient.Parent then
-				gradient.Rotation = (gradient.Rotation + 1.2) % 360
-			end
-		end)
-	else
-		gradient.Color = ColorSequence.new(colorOf(C.meta.borderColor))
-	end
-	stroke.Enabled = C.meta.borderEnabled
+
+	-- 边框旋转动画一直开着，颜色是否彩虹由 applyBorder 决定（关掉也没开销）
+	RunService.Heartbeat:Connect(function()
+		if gradient.Parent and C.meta.borderEnabled and C.meta.borderRainbow then
+			gradient.Rotation = (gradient.Rotation + 1.2) % 360
+		end
+	end)
+
+	applyBorder()
 
 	local titleBar = new("Frame", {
 		Size = UDim2.new(1, 0, 0, 36),
@@ -1987,6 +2054,28 @@ local function buildMenu()
 		notify("已重置（需重开菜单刷新控件状态）")
 	end)
 
+	-- 主页快捷开关：彩虹边框
+	UI.toggle(page, "彩虹边框（菜单描边）", function()
+		return C.meta.borderEnabled and C.meta.borderRainbow
+	end, function(v)
+		C.meta.borderEnabled = v
+		C.meta.borderRainbow = v
+		applyBorder()
+		-- 设置页那两个开关也跟着变
+		UI.syncToggle("borderEnabled", v)
+		UI.syncToggle("borderRainbow", v)
+		notify(v and "彩虹边框已开启" or "彩虹边框已关闭")
+	end, "borderRainbowQuick")
+
+	-- 主页快捷开关：安全模式
+	UI.toggle(page, "安全模式（防封）", function()
+		return C.safe.enabled
+	end, function(v)
+		C.safe.enabled = v
+		UI.syncToggle("safeMode", v)
+		notify(v and ("安全模式已开启，速度上限 " .. tostring(C.safe.maxSpeed)) or "安全模式已关闭，注意风险")
+	end, "safeModeQuick")
+
 	-- ---- ESP ----
 	page = UI.tab("透视")
 	UI.toggle(page, "ESP 总开关", function() return C.esp.enabled end, function(v)
@@ -2102,29 +2191,17 @@ local function buildMenu()
 	end)
 	UI.toggle(page, "启用边框", function() return C.meta.borderEnabled end, function(v)
 		C.meta.borderEnabled = v
-		if UI.rainbowStroke then UI.rainbowStroke.stroke.Enabled = v end
-	end)
+		applyBorder()
+		UI.syncToggle("borderEnabled", v)
+	end, "borderEnabled")
 	UI.toggle(page, "彩虹边框", function() return C.meta.borderRainbow end, function(v)
 		C.meta.borderRainbow = v
-		if UI.rainbowStroke then
-			if v then
-				UI.rainbowStroke.gradient.Color = ColorSequence.new({
-					ColorSequenceKeypoint.new(0, Color3.fromHex("FF1493")),
-					ColorSequenceKeypoint.new(0.25, Color3.fromHex("FFD700")),
-					ColorSequenceKeypoint.new(0.5, Color3.fromHex("00FFAA")),
-					ColorSequenceKeypoint.new(0.75, Color3.fromHex("00BFFF")),
-					ColorSequenceKeypoint.new(1, Color3.fromHex("FF1493")),
-				})
-			else
-				UI.rainbowStroke.gradient.Color = ColorSequence.new(colorOf(C.meta.borderColor))
-			end
-		end
-	end)
+		applyBorder()
+		UI.syncToggle("borderRainbow", v)
+	end, "borderRainbow")
 	UI.dropdown(page, "边框颜色", ColorNames, function() return C.meta.borderColor end, function(v)
 		C.meta.borderColor = v
-		if UI.rainbowStroke and not C.meta.borderRainbow then
-			UI.rainbowStroke.gradient.Color = ColorSequence.new(colorOf(v))
-		end
+		applyBorder()
 	end)
 	UI.dropdown(page, "开关按键", { "RightShift", "LeftShift", "K", "Insert", "F1" },
 		function() return C.ui.openKey end, function(v) C.ui.openKey = v end)
@@ -2145,12 +2222,13 @@ local function buildMenu()
 	UI.label(page, "安全模式 = 让行为更像真人：限速、分段移动、攻击随机化、少用高危 API。\n它降低被记录的几率，但绕不过服务端对位置/伤害的硬校验。", 54)
 	UI.toggle(page, "安全模式总开关", function() return C.safe.enabled end, function(v)
 		C.safe.enabled = v
+		UI.syncToggle("safeMode", v)
 		if v then
 			notify("安全模式开启：速度上限 " .. tostring(C.safe.maxSpeed) .. "，传送改为分段")
 		else
 			notify("安全模式关闭：功能全开，被封风险上升")
 		end
-	end)
+	end, "safeMode")
 	UI.slider(page, "速度上限", 16, 80, 1, function() return C.safe.maxSpeed end, function(v)
 		C.safe.maxSpeed = v
 	end)
