@@ -188,9 +188,9 @@ local MOBILE = (DEVICE ~= "pc")
 
 -- 每种设备的标准尺寸（单位：像素）
 local SIZE_PRESET = {
-	pc     = { w = 760, h = 520, nav = 180 },
-	tablet = { w = 700, h = 500, nav = 164 },
-	phone  = { w = 660, h = 360, nav = 132 },
+	pc     = { w = 760, h = 520, nav = 148 },
+	tablet = { w = 700, h = 500, nav = 132 },
+	phone  = { w = 660, h = 360, nav = 106 },
 }
 
 local running = true      -- 关闭脚本时置 false，所有循环退出
@@ -727,7 +727,7 @@ for _, item in ipairs(NAV_ITEMS) do
 	if item.divider then
 		local dv = mk("Frame", {
 			Size = UDim2.new(1, -24, 0, 1),
-			Position = UDim2.fromOffset(12, navY + 4),
+			Position = UDim2.fromOffset(8, navY + 4),
 			BackgroundColor3 = pal.line,
 			BorderSizePixel = 0,
 		}, nav)
@@ -742,8 +742,8 @@ for _, item in ipairs(NAV_ITEMS) do
 		}, nav)
 
 		local iconBox = mk("Frame", {
-			Size = UDim2.fromOffset(20, 20),
-			Position = UDim2.fromOffset(16, 10),
+			Size = UDim2.fromOffset(18, 18),
+			Position = UDim2.fromOffset(10, 11),
 			BackgroundTransparency = 1,
 		}, btn)
 		local icon = mk("TextLabel", {
@@ -755,8 +755,8 @@ for _, item in ipairs(NAV_ITEMS) do
 		}, iconBox)
 
 		local label = mk("TextLabel", {
-			Size = UDim2.new(1, -52, 1, 0),
-			Position = UDim2.fromOffset(46, 0),
+			Size = UDim2.new(1, -38, 1, 0),
+			Position = UDim2.fromOffset(32, 0),
 			BackgroundTransparency = 1,
 			Font = Enum.Font.Gotham,
 			TextSize = 14,
@@ -775,8 +775,8 @@ end
 
 -- 侧栏底部
 local footer = mk("TextLabel", {
-	Size = UDim2.new(1, -32, 0, 16),
-	Position = UDim2.new(0, 16, 1, -28),
+	Size = UDim2.new(1, -20, 0, 16),
+	Position = UDim2.new(0, 10, 1, -28),
 	BackgroundTransparency = 1,
 	Font = Enum.Font.Gotham,
 	TextSize = 12,
@@ -1378,7 +1378,7 @@ function applyLayout()
 	end
 
 	-- 导航重排：按可用高度压缩每一项，保证不压到底部文字
-	local narrow = (nw < 130)
+	local narrow = (nw < 120)
 	local itemCount = 0
 	for _, it in ipairs(navList) do
 		if it.btn then itemCount = itemCount + 1 end
@@ -1393,8 +1393,8 @@ function applyLayout()
 	for _, it in ipairs(navList) do
 		if it.divider then
 			safe(function()
-				it.divider.Position = UDim2.fromOffset(12, y + 2)
-				it.divider.Size = UDim2.new(1, -24, 0, 1)
+				it.divider.Position = UDim2.fromOffset(8, y + 2)
+				it.divider.Size = UDim2.new(1, -16, 0, 1)
 			end)
 			y = y + divH
 		else
@@ -1404,11 +1404,11 @@ function applyLayout()
 			end)
 			local b = navButtons[it.item.id]
 			if b then
-				local iconSize = narrow and 16 or 20
-				local labelX = narrow and 38 or 46
+				local iconSize = narrow and 15 or 18
+				local labelX = narrow and 26 or 32
 				safe(function()
 					b.iconBox.Size = UDim2.fromOffset(iconSize, iconSize)
-					b.iconBox.Position = UDim2.fromOffset(narrow and 11 or 16, (itemH - iconSize) / 2)
+					b.iconBox.Position = UDim2.fromOffset(narrow and 7 or 10, (itemH - iconSize) / 2)
 					b.icon.TextSize = narrow and 11 or 14
 					b.label.Position = UDim2.fromOffset(labelX, 0)
 					b.label.Size = UDim2.new(1, -(labelX + 6), 1, 0)
@@ -1422,7 +1422,7 @@ function applyLayout()
 	-- 底部版本文字：面板太矮就隐藏，避免压住导航
 	safe(function()
 		footer.Visible = (ph >= 360)
-		footer.Position = UDim2.new(0, 16, 1, -26)
+		footer.Position = UDim2.new(0, 10, 1, -26)
 	end)
 
 	-- 拖条尺寸跟着窗口走
