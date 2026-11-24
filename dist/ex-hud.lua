@@ -167,27 +167,67 @@ local gui = mk("ScreenGui", {
 	ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
 }, UI_PARENT)
 
--- 屏幕自适应：手机用百分比，电脑用固定值
-local MOBILE = (UIS.TouchEnabled and not UIS.KeyboardEnabled)
-
+-- 设备判定：电脑 / 平板 / 手机（三套专属尺寸）
 local function viewport()
 	local cam = Workspace.CurrentCamera
 	if cam then return cam.ViewportSize end
 	return Vector2.new(1280, 720)
 end
 
+local function deviceClass()
+	local vp = viewport()
+	local touchOnly = UIS.TouchEnabled and not UIS.KeyboardEnabled
+	if not touchOnly then return "pc" end
+	-- 平板：短边 >= 600（手机横屏短边一般 300~500）
+	if math.min(vp.X, vp.Y) >= 600 then return "tablet" end
+	return "phone"
+end
+
+local DEVICE = deviceClass()
+local MOBILE = (DEVICE ~= "pc")
+
+-- 每种设备的标准尺寸（单位：像素）
+local SIZE_PRESET = {
+	pc     = { w = 760, h = 520, nav = 180 },
+	tablet = { w = 700, h = 500, nav = 164 },
+	phone  = { w = 660, h = 360, nav = 132 },
+}
+
+local running = true      -- 关闭脚本时置 false，所有循环退出
+local applyLayout          -- 前向声明：窗口按钮要用
+local zoomed  = false      -- □ 放大状态
+
+-- 计算当前应使用的尺寸（同时按屏幕做上限保护，绝不超出画面）
 local function calcSizes()
 	local vp = viewport()
-	local pw, ph, nw
-	if MOBILE then
-		pw = math.clamp(vp.X * 0.94, 300, 640)
-		ph = math.clamp(vp.Y * 0.78, 250, 620)
-		nw = math.clamp(pw * 0.28, 96, 140)
-	else
-		pw = math.min(720, vp.X * 0.92)
-		ph = math.min(480, vp.Y * 0.86)
-		nw = 180
+	local cls = deviceClass()
+	DEVICE = cls
+	MOBILE = (cls ~= "pc")
+
+	local maxW = math.max(280, vp.X - 16)
+	local maxH = math.max(220, vp.Y - 16)
+	local preset = SIZE_PRESET[cls] or SIZE_PRESET.pc
+
+	local pw = math.min(preset.w, maxW)
+	local ph = math.min(preset.h, maxH)
+
+	-- 手机竖屏时收窄、拉高
+	if cls == "phone" and vp.Y > vp.X then
+		pw = math.min(vp.X * 0.96, 480)
+		ph = math.min(vp.Y * 0.80, 620)
 	end
+
+	-- 放大状态：占满屏幕（留 8 边距）
+	if zoomed then
+		pw = maxW
+		ph = maxH
+	end
+
+	local nw = preset.nav
+	if pw - nw < 260 then
+		nw = math.clamp(pw * 0.26, 88, preset.nav)
+	end
+
 	return math.floor(pw), math.floor(ph), math.floor(nw)
 end
 
@@ -243,6 +283,67 @@ local padding = mk("UIPadding", {
 	PaddingLeft = UDim.new(0, 16),
 	PaddingRight = UDim.new(0, 16),
 }, scroller)
+
+-- ============================================================
+-- 拖动：任何注册进来的透明按钮都能拖着面板走
+-- ============================================================
+local dragBoxes = {}   -- 需要随窗口变化的拖条
+local function bindDrag(box)
+	if not box then return end
+	local dragging, dragStart, startPos = false, nil, nil
+
+	box.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			dragStart = input.Position
+			startPos = panel.Position
+		end
+	end)
+
+	UIS.InputChanged:Connect(function(input)
+		if not dragging then return end
+		if input.UserInputType == Enum.UserInputType.MouseMovement
+			or input.UserInputType == Enum.UserInputType.Touch then
+			local dx = input.Position.X - dragStart.X
+			local dy = input.Position.Y - dragStart.Y
+			panel.Position = UDim2.new(
+				startPos.X.Scale, startPos.X.Offset + dx,
+				startPos.Y.Scale, startPos.Y.Offset + dy)
+		end
+	end)
+
+	UIS.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = false
+		end
+	end)
+end
+
+-- 拖条 1：导航顶部
+local navDrag = mk("TextButton", {
+	Name = "NavDrag",
+	Size = UDim2.new(1, 0, 0, 28),
+	Position = UDim2.fromOffset(0, 0),
+	BackgroundTransparency = 1,
+	Text = "",
+	ZIndex = 20,
+}, nav)
+bindDrag(navDrag)
+table.insert(dragBoxes, { box = navDrag, kind = "nav" })
+
+-- 拖条 2：内容区标题栏（避开右侧三个按钮）
+local headDrag = mk("TextButton", {
+	Name = "HeadDrag",
+	Size = UDim2.new(1, -160, 0, 26),
+	Position = UDim2.fromOffset(NAV_W + 12, 0),
+	BackgroundTransparency = 1,
+	Text = "",
+	ZIndex = 20,
+}, panel)
+bindDrag(headDrag)
+table.insert(dragBoxes, { box = headDrag, kind = "head" })
 
 -- 顶部时钟（HTML 里固定在顶部中间）
 local clock = mk("TextLabel", {
@@ -621,14 +722,16 @@ local NAV_ITEMS = {
 }
 
 local navY = 12
+local navList = {}   -- 记录导航项，applyLayout 里统一重排
 for _, item in ipairs(NAV_ITEMS) do
 	if item.divider then
-		mk("Frame", {
+		local dv = mk("Frame", {
 			Size = UDim2.new(1, -24, 0, 1),
 			Position = UDim2.fromOffset(12, navY + 4),
 			BackgroundColor3 = pal.line,
 			BorderSizePixel = 0,
 		}, nav)
+		table.insert(navList, { divider = dv })
 		navY = navY + 17
 	else
 		local btn = mk("TextButton", {
@@ -664,7 +767,8 @@ for _, item in ipairs(NAV_ITEMS) do
 		reg(icon, "TextColor3", "text")
 		reg(label, "TextColor3", "text")
 
-		navButtons[item.id] = { btn = btn, label = label, icon = icon, item = item }
+		navButtons[item.id] = { btn = btn, label = label, icon = icon, item = item, iconBox = iconBox }
+		table.insert(navList, { btn = btn, item = item })
 		navY = navY + 40
 	end
 end
@@ -823,7 +927,7 @@ end
 
 -- 速度 / 跳跃
 task.spawn(function()
-	while true do
+	while running do
 		safe(function()
 			local _, hum = getChar()
 			if hum then
@@ -853,7 +957,7 @@ end)
 
 -- 穿墙
 task.spawn(function()
-	while true do
+	while running do
 		if state.noclip then
 			safe(function()
 				local ch = LP.Character
@@ -925,7 +1029,7 @@ end
 
 -- 互动（自动按附近 ProximityPrompt）
 task.spawn(function()
-	while true do
+	while running do
 		if state.interactOn then
 			safe(function()
 				local _, _, root = getChar()
@@ -954,7 +1058,7 @@ end)
 
 -- 一键破解循环
 task.spawn(function()
-	while true do
+	while running do
 		if state.oneClick then
 			safe(hackRun)
 			task.wait(5)
@@ -966,7 +1070,7 @@ end)
 
 -- 彩虹边框
 task.spawn(function()
-	while true do
+	while running do
 		if state.borderOn and state.rainbowOn then
 			safe(function()
 				border.Color = Color3.fromHSV((tick() % 6) / 6, 1, 1)
@@ -989,7 +1093,7 @@ end
 
 -- 时钟
 task.spawn(function()
-	while true do
+	while running do
 		safe(function()
 			clock.Text = os.date("%H:%M:%S")
 		end)
@@ -1109,19 +1213,43 @@ do
 		panel.Visible = not panel.Visible
 	end)
 
-	-- 窗口按钮
+	-- 窗口按钮：− 最小化成小窗 / □ 放大还原 / × 关闭脚本
+	local minimized = false
+
 	bMin.MouseButton1Click:Connect(function()
-		local collapsed = panel.Size.Y.Offset <= 60
-		panel.Size = UDim2.fromOffset(PANEL_W, collapsed and PANEL_H or 44)
-		nav.Visible = not collapsed
-		scroller.Visible = not collapsed
+		minimized = not minimized
+		if minimized then
+			-- 收成一条小窗（只剩导航顶部 + 按钮）
+			safe(function()
+				panel.Size = UDim2.fromOffset(PANEL_W, 34)
+				nav.Visible = false
+				scroller.Visible = false
+				clock.Visible = false
+				bMin.Text = "+"
+			end)
+		else
+			safe(function() bMin.Text = "-" end)
+			applyLayout()
+		end
 	end)
+
 	bMax.MouseButton1Click:Connect(function()
-		local big = panel.Size.X.Offset > 760
-		panel.Size = UDim2.fromOffset(big and PANEL_W or 960, big and PANEL_H or 620)
+		zoomed = not zoomed
+		minimized = false
+		safe(function()
+			bMin.Text = "-"
+			bMax.Text = zoomed and "▣" or "□"
+		end)
+		applyLayout()
 	end)
+
 	bClose.MouseButton1Click:Connect(function()
+		-- 真正关闭脚本：停所有功能 + 还原破解 + 销毁界面
+		running = false
+		safe(function() state.fly = false flyStop() end)
+		safe(hackRestore)
 		safe(function() gui:Destroy() end)
+		print(TAG .. " 已关闭")
 	end)
 end
 
@@ -1215,63 +1343,29 @@ for id, b in pairs(navButtons) do
 end
 
 -- ============================================================
--- 11. 面板拖动
--- ============================================================
-do
-	local dragging, dragStart, startPos = false, nil, nil
-	-- 只占顶部 10px，避免盖住第一个导航项
-	local handle = mk("TextButton", {
-		Size = UDim2.new(1, 0, 0, 10),
-		Position = UDim2.fromOffset(0, 0),
-		BackgroundTransparency = 1,
-		Text = "",
-		ZIndex = 10,
-	}, panel)
-
-	handle.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1
-			or input.UserInputType == Enum.UserInputType.Touch then
-			dragging = true
-			dragStart = input.Position
-			startPos = panel.Position
-		end
-	end)
-	UIS.InputChanged:Connect(function(input)
-		if not dragging then return end
-		if input.UserInputType == Enum.UserInputType.MouseMovement
-			or input.UserInputType == Enum.UserInputType.Touch then
-			local dx = input.Position.X - dragStart.X
-			local dy = input.Position.Y - dragStart.Y
-			panel.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + dx,
-				startPos.Y.Scale, startPos.Y.Offset + dy)
-		end
-	end)
-	UIS.InputEnded:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1
-			or input.UserInputType == Enum.UserInputType.Touch then
-			dragging = false
-		end
-	end)
-end
-
--- ============================================================
 -- 11.5 屏幕自适应（手机 / 电脑 / 横竖屏切换）
 -- ============================================================
-local function applyLayout()
+function applyLayout()
 	local pw, ph, nw = calcSizes()
 	PANEL_W, PANEL_H, NAV_W = pw, ph, nw
 
 	safe(function()
 		panel.Size = UDim2.fromOffset(pw, ph)
 		panel.Position = UDim2.new(0.5, -pw / 2, 0.5, -ph / 2)
+		panel.Visible = true
 	end)
-	safe(function() nav.Size = UDim2.fromOffset(nw, ph) end)
 	safe(function()
+		nav.Visible = true
+		nav.Size = UDim2.fromOffset(nw, ph)
+	end)
+	safe(function()
+		scroller.Visible = true
 		scroller.Size = UDim2.new(1, -nw, 1, 0)
 		scroller.Position = UDim2.fromOffset(nw, 0)
 	end)
+	safe(function() clock.Visible = true end)
 
-	-- 内容太窄就改单列
+	-- 内容太窄就单列
 	local contentW = pw - nw - 32
 	local oneCol = contentW < 430
 	local cellH = MOBILE and 58 or 62
@@ -1283,18 +1377,69 @@ local function applyLayout()
 		end)
 	end
 
-	-- 导航字号：窄的时候缩一点
-	for _, b in pairs(navButtons) do
+	-- 导航重排：按可用高度压缩每一项，保证不压到底部文字
+	local narrow = (nw < 130)
+	local itemCount = 0
+	for _, it in ipairs(navList) do
+		if it.btn then itemCount = itemCount + 1 end
+	end
+	local bottomReserve = (ph < 360) and 8 or 34
+	local avail = ph - 32 - bottomReserve - 8
+	local unit = (itemCount > 0) and (avail / itemCount) or 40
+	local itemH = math.clamp(unit - 2, 24, 44)
+	local divH = math.max(4, math.floor(itemH * 0.3))
+
+	local y = 32
+	for _, it in ipairs(navList) do
+		if it.divider then
+			safe(function()
+				it.divider.Position = UDim2.fromOffset(12, y + 2)
+				it.divider.Size = UDim2.new(1, -24, 0, 1)
+			end)
+			y = y + divH
+		else
+			safe(function()
+				it.btn.Size = UDim2.new(1, 0, 0, itemH)
+				it.btn.Position = UDim2.fromOffset(0, y)
+			end)
+			local b = navButtons[it.item.id]
+			if b then
+				local iconSize = narrow and 16 or 20
+				local labelX = narrow and 38 or 46
+				safe(function()
+					b.iconBox.Size = UDim2.fromOffset(iconSize, iconSize)
+					b.iconBox.Position = UDim2.fromOffset(narrow and 11 or 16, (itemH - iconSize) / 2)
+					b.icon.TextSize = narrow and 11 or 14
+					b.label.Position = UDim2.fromOffset(labelX, 0)
+					b.label.Size = UDim2.new(1, -(labelX + 6), 1, 0)
+					b.label.TextSize = narrow and 12 or (itemH < 30 and 12 or 14)
+				end)
+			end
+			y = y + itemH
+		end
+	end
+
+	-- 底部版本文字：面板太矮就隐藏，避免压住导航
+	safe(function()
+		footer.Visible = (ph >= 360)
+		footer.Position = UDim2.new(0, 16, 1, -26)
+	end)
+
+	-- 拖条尺寸跟着窗口走
+	for _, d in ipairs(dragBoxes) do
 		safe(function()
-			b.label.TextSize = (nw < 130) and 12 or 14
-			b.icon.TextSize = (nw < 130) and 12 or 14
-			b.label.Position = UDim2.fromOffset((nw < 130) and 40 or 46, 0)
-			b.label.Size = UDim2.new(1, -((nw < 130) and 46 or 52), 1, 0)
-			b.icon.Parent.Position = UDim2.fromOffset((nw < 130) and 12 or 16, 10)
+			if d.kind == "nav" then
+				d.box.Size = UDim2.new(1, 0, 0, 28)
+				d.box.Position = UDim2.fromOffset(0, 0)
+			else
+				local w = math.max(60, pw - nw - 160)
+				d.box.Size = UDim2.new(0, w, 0, 26)
+				d.box.Position = UDim2.fromOffset(nw + 12, 0)
+			end
 		end)
 	end
 
-	clock.TextSize = MOBILE and 11 or 13
+	safe(function() clock.TextSize = MOBILE and 11 or 13 end)
 end
 
 safe(applyLayout)
