@@ -247,13 +247,15 @@ local padding = mk("UIPadding", {
 -- 顶部时钟（HTML 里固定在顶部中间）
 local clock = mk("TextLabel", {
 	Name = "Clock",
-	Size = UDim2.new(1, 0, 0, 18),
-	Position = UDim2.new(0, 0, 0, -12),
+	Size = UDim2.fromOffset(120, 18),
+	Position = UDim2.new(0.5, -60, 0, 8),
 	BackgroundTransparency = 1,
 	Font = Enum.Font.Gotham,
 	TextSize = 13,
+	TextXAlignment = Enum.TextXAlignment.Center,
+	ZIndex = 8,
 	Text = "00:00:00",
-}, scroller)
+}, panel)
 reg(clock, "TextColor3", "sub")
 
 -- ============================================================
@@ -943,7 +945,7 @@ task.spawn(function()
 					if best then fireProximityPrompt(best) end
 				end
 			end)
-			task.wait(math.max(0.1, state.interactSec))
+			task.wait(math.max(0.5, state.interactSec))
 		else
 			task.wait(0.5)
 		end
@@ -955,7 +957,7 @@ task.spawn(function()
 	while true do
 		if state.oneClick then
 			safe(hackRun)
-			task.wait(2)
+			task.wait(5)
 		else
 			task.wait(1)
 		end
@@ -1217,11 +1219,13 @@ end
 -- ============================================================
 do
 	local dragging, dragStart, startPos = false, nil, nil
+	-- 只占顶部 10px，避免盖住第一个导航项
 	local handle = mk("TextButton", {
-		Size = UDim2.fromOffset(NAV_W, 40),
+		Size = UDim2.new(1, 0, 0, 10),
 		Position = UDim2.fromOffset(0, 0),
 		BackgroundTransparency = 1,
 		Text = "",
+		ZIndex = 10,
 	}, panel)
 
 	handle.InputBegan:Connect(function(input)
