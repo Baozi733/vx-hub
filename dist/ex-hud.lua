@@ -202,6 +202,11 @@ local SIZE_PRESET = {
 	phone  = { w = 700, h = 470, nav = 100 },
 }
 
+-- 卡片右侧控件与右边缘的距离（想更靠左就调大这个数）
+local CARD_PAD_RIGHT = 16
+local SWITCH_W, SWITCH_H = 32, 18
+local VALUE_W = 44
+
 -- 侧栏选中项是否显示高亮底色（false = 不显示颜色，只有文字变白）
 local NAV_HIGHLIGHT = false
 
@@ -405,8 +410,8 @@ local curView = "home"
 
 local function switchOnOff(parent, isOn)
 	local track = mk("Frame", {
-		Size = UDim2.fromOffset(32, 18),
-		Position = UDim2.new(1, -38, 0.5, -9),
+		Size = UDim2.fromOffset(SWITCH_W, SWITCH_H),
+		Position = UDim2.new(1, -(CARD_PAD_RIGHT + SWITCH_W), 0.5, -SWITCH_H / 2),
 		BackgroundColor3 = isOn and pal.accent or pal.track,
 		BorderSizePixel = 0,
 	}, parent)
@@ -444,7 +449,7 @@ local function card(grid, title, desc, isOn, onToggle)
 	reg(cardFrame, "BackgroundColor3", "panel")
 
 	local lbl = mk("TextLabel", {
-		Size = UDim2.new(1, -52, 0, 18),
+		Size = UDim2.new(1, -(CARD_PAD_RIGHT + SWITCH_W + 22), 0, 18),
 		Position = UDim2.fromOffset(10, 8),
 		BackgroundTransparency = 1,
 		Font = Enum.Font.GothamMedium,
@@ -522,8 +527,8 @@ local function sliderCard(grid, title, minVal, maxVal, step, cur, onChanged)
 	reg(lbl, "TextColor3", "text")
 
 	local valLbl = mk("TextLabel", {
-		Size = UDim2.fromOffset(44, 16),
-		Position = UDim2.new(1, -50, 0, 5),
+		Size = UDim2.fromOffset(VALUE_W, 16),
+		Position = UDim2.new(1, -(CARD_PAD_RIGHT + VALUE_W), 0, 5),
 		BackgroundTransparency = 1,
 		Font = Enum.Font.Gotham,
 		TextSize = 13,
