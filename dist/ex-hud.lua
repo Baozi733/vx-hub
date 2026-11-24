@@ -1105,6 +1105,41 @@ function Guard.uninstall()
 	if not Guard.quiet then print(TAG .. " 反作弊绕过已关闭") end
 end
 
+-- 扫描反作弊相关模块：把名字像检测器的东西全列出来
+local SCAN_WORDS = {
+	"anticheat", "anti_cheat", "cheat", "security", "guard", "ratchet",
+	"sha", "detect", "report", "kick", "validat", "integrity",
+	"monitor", "sanction", "ban", "protect", "hack",
+}
+
+function Guard.scan()
+	local found = {}
+	local seen = {}
+
+	local function walk(root, label)
+		if not root then return end
+		for _, d in ipairs(root:GetDescendants()) do
+			local n = string.lower(tostring(d.Name or ""))
+			for _, w in ipairs(SCAN_WORDS) do
+				if string.find(n, w, 1, true) then
+					local key = d:GetFullName()
+					if not seen[key] then
+						seen[key] = true
+						table.insert(found, string.format("[%s] %s  (%s)", label, key, d.ClassName))
+					end
+					break
+				end
+			end
+		end
+	end
+
+	safe(function() walk(ReplicatedStorage, "RS") end)
+	safe(function() walk(LP:FindFirstChild("PlayerScripts"), "PS") end)
+	safe(function() walk(LP:FindFirstChild("PlayerGui"), "GUI") end)
+
+	return found
+end
+
 -- 圣奥里专属：把该游戏的反作弊模块按名字直接封掉
 function Guard.sanLeo()
 	local hits = 0
@@ -1802,6 +1837,77 @@ do
 			local n = safe(Guard.sanLeo)
 			if not Guard.quiet then
 				print(TAG .. " 圣奥里强化：" .. tostring(n))
+			end
+		end
+	end)
+
+	-- 扫描反作弊模块
+	local scanCard
+	local scanOutput
+	scanCard = card(g, "扫描反作弊模块", "点一下列出检测类模块", false, function(on)
+		if not on then return end
+		local list = Guard.scan() or {}
+		if #list == 0 then
+			scanCard.sub.Text = "没找到（名字不匹配）"
+		else
+			scanCard.sub.Text = string.format("找到 %d 个，见下方", #list)
+		end
+		if not Guard.quiet then
+			print("===== 反作弊模块扫描 =====")
+			for i, line in ipairs(list) do
+				print(string.format("%2d. %s", i, line))
+			end
+			if #list == 0 then print("（没找到，可能名字不同或不在客户端）") end
+		end
+		safe(function()
+			scanOutput.Visible = true
+			scanOutput.Text = #list == 0
+				and "没找到匹配的模块。\n可能名字不含 anticheat/security/ratchet 等关键字。"
+				or table.concat(list, "\n")
+		end)
+	end)
+
+	scanOutput = mk("TextLabel", {
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundColor3 = pal.input,
+		BackgroundTransparency = 0.35,
+		BorderSizePixel = 0,
+		Font = Enum.Font.Code,
+		TextSize = 11,
+		TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		Text = "",
+		Visible = false,
+	}, v.body)
+	reg(scanOutput, "TextColor3", "sub")
+	mk("UIPadding", {
+		PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 6),
+		PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8),
+	}, scanOutput)
+	mk("UICorner", { CornerRadius = UDim.new(0, 6) }, scanOutput)
+
+	-- 列出 ReplicatedStorage 全部子项
+	card(g, "列出 ReplicatedStorage", "显示全部子项，便于对照命名", false, function(on)
+		if not on then return end
+		local lines = {}
+		safe(function()
+			for _, c in ipairs(ReplicatedStorage:GetChildren()) do
+				table.insert(lines, string.format("%s  (%s)", c.Name, c.ClassName))
+			end
+		end)
+		table.sort(lines)
+		safe(function()
+			scanOutput.Visible = true
+			scanOutput.Text = #lines == 0
+				and "ReplicatedStorage 没有子项"
+				or table.concat(lines, "\n")
+		end)
+		if not Guard.quiet then
+			print("===== ReplicatedStorage 子项 (" .. #lines .. ") =====")
+			for i, line in ipairs(lines) do
+				print(string.format("%2d. %s", i, line))
 			end
 		end
 	end)
