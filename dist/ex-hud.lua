@@ -278,7 +278,7 @@ local scroller = mk("ScrollingFrame", {
 reg(scroller, "ScrollBarImageColor3", "line")
 
 local padding = mk("UIPadding", {
-	PaddingTop = UDim.new(0, 12),
+	PaddingTop = UDim.new(0, 42),
 	PaddingBottom = UDim.new(0, 12),
 	PaddingLeft = UDim.new(0, 12),
 	PaddingRight = UDim.new(0, 12),
@@ -340,7 +340,7 @@ local headDrag = mk("TextButton", {
 	Position = UDim2.fromOffset(NAV_W + 12, 0),
 	BackgroundTransparency = 1,
 	Text = "",
-	ZIndex = 20,
+	ZIndex = 24,
 }, panel)
 bindDrag(headDrag)
 table.insert(dragBoxes, { box = headDrag, kind = "head" })
@@ -717,22 +717,10 @@ for _, item in ipairs(NAV_ITEMS) do
 			Text = "",
 		}, nav)
 
-		local iconBox = mk("Frame", {
-			Size = UDim2.fromOffset(18, 18),
-			Position = UDim2.fromOffset(10, 11),
-			BackgroundTransparency = 1,
-		}, btn)
-		local icon = mk("TextLabel", {
-			Size = UDim2.fromScale(1, 1),
-			BackgroundTransparency = 1,
-			Font = Enum.Font.GothamBold,
-			TextSize = 14,
-			Text = item.icon,
-		}, iconBox)
-
+		-- 只留文字，不带图标
 		local label = mk("TextLabel", {
-			Size = UDim2.new(1, -38, 1, 0),
-			Position = UDim2.fromOffset(32, 0),
+			Size = UDim2.new(1, -24, 1, 0),
+			Position = UDim2.fromOffset(14, 0),
 			BackgroundTransparency = 1,
 			Font = Enum.Font.Gotham,
 			TextSize = 14,
@@ -740,10 +728,9 @@ for _, item in ipairs(NAV_ITEMS) do
 			Text = item.label,
 		}, btn)
 
-		reg(icon, "TextColor3", "text")
 		reg(label, "TextColor3", "text")
 
-		navButtons[item.id] = { btn = btn, label = label, icon = icon, item = item, iconBox = iconBox }
+		navButtons[item.id] = { btn = btn, label = label, item = item }
 		table.insert(navList, { btn = btn, item = item })
 		navY = navY + 40
 	end
@@ -772,12 +759,16 @@ local function winBtn(posX, kind)
 	reg(mk("UIStroke", { Thickness = 1 }, b), "Color", "line")
 	reg(b, "BackgroundColor3", "panel")
 	reg(b, "TextColor3", "text")
+	-- 右上角锚定：不管窗口多宽，永远贴最右边
+	safe(function()
+		b.AnchorPoint = Vector2.new(1, 0)
+	end)
 	return b
 end
 
-local bMin   = winBtn(-92, "min")
-local bMax   = winBtn(-62, "max")
-local bClose = winBtn(-32, "close")
+local bMin   = winBtn(-78, "min")
+local bMax   = winBtn(-46, "max")
+local bClose = winBtn(-14, "close")
 
 -- 收起后显示的牌子
 local brand = mk("TextLabel", {
@@ -793,6 +784,61 @@ local brand = mk("TextLabel", {
 	ZIndex = 30,
 }, panel)
 reg(brand, "TextColor3", "accent")
+
+-- 顶栏：三个窗口按钮 + 时钟都在这一条，位于「主页」标题上方
+local topbar = mk("Frame", {
+	Name = "TopBar",
+	Size = UDim2.new(1, -NAV_W, 0, 30),
+	Position = UDim2.fromOffset(NAV_W, 0),
+	BackgroundColor3 = pal.panel,
+	BorderSizePixel = 0,
+	ZIndex = 25,
+}, panel)
+reg(topbar, "BackgroundColor3", "panel")
+
+local topbarLine = mk("Frame", {
+	Size = UDim2.new(1, 0, 0, 1),
+	Position = UDim2.new(0, 0, 1, -1),
+	BackgroundColor3 = pal.line,
+	BorderSizePixel = 0,
+	ZIndex = 26,
+}, topbar)
+reg(topbarLine, "BackgroundColor3", "line")
+
+-- 顶栏左侧标题
+-- EX HUD 放在左侧导航顶部（红框位置），不在顶栏里
+local topTitle = mk("TextLabel", {
+	Name = "TopTitle",
+	Size = UDim2.fromOffset(math.max(60, NAV_W - 16), 28),
+	Position = UDim2.fromOffset(12, 1),
+	BackgroundTransparency = 1,
+	Font = Enum.Font.GothamBold,
+	TextSize = 12,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	Text = "EX HUD",
+	ZIndex = 26,
+}, panel)
+reg(topTitle, "TextColor3", "accent")
+
+-- 时钟挪进顶栏并居中
+safe(function()
+	clock.Parent = topbar
+	clock.Position = UDim2.new(0.5, -60, 0, 6)
+	clock.ZIndex = 26
+end)
+
+-- 三个按钮挂到顶栏
+safe(function()
+	bMin.Parent = topbar
+	bMax.Parent = topbar
+	bClose.Parent = topbar
+	bMin.Position = UDim2.new(1, -78, 0, 2)
+	bMax.Position = UDim2.new(1, -46, 0, 2)
+	bClose.Position = UDim2.new(1, -14, 0, 2)
+	bMin.ZIndex = 27
+	bMax.ZIndex = 27
+	bClose.ZIndex = 27
+end)
 
 -- 侧栏底部
 local footer = mk("TextLabel", {
@@ -1136,7 +1182,6 @@ local function show(id)
 			b.btn.BackgroundTransparency = active and 0 or 1
 			b.btn.BackgroundColor3 = active and pal.soft or pal.panel
 			b.label.TextColor3 = active and pal.accent or pal.text
-			b.icon.TextColor3 = active and pal.accent or pal.text
 		end)
 	end
 	safe(function() scroller.CanvasPosition = Vector2.zero end)
@@ -1394,11 +1439,9 @@ function applyLayout()
 			panel.Size = UDim2.fromOffset(math.min(pw, 420), 36)
 			nav.Visible = false
 			scroller.Visible = false
-			clock.Visible = false
+			topbar.Visible = false
+			topTitle.Visible = false
 			brand.Visible = true
-			bMin.Position = UDim2.new(1, -92, 0, 5)
-			bMax.Position = UDim2.new(1, -62, 0, 5)
-			bClose.Position = UDim2.new(1, -32, 0, 5)
 		end)
 		return
 	end
@@ -1414,13 +1457,19 @@ function applyLayout()
 		scroller.Position = UDim2.fromOffset(nw, 0)
 	end)
 	safe(function()
+		topbar.Visible = true
+		topbar.Size = UDim2.new(1, -nw, 0, 30)
+		topbar.Position = UDim2.fromOffset(nw, 0)
 		clock.Visible = true
+		clock.Position = UDim2.new(0.5, -60, 0, 6)
+		topTitle.Size = UDim2.fromOffset(math.max(50, nw - 16), 28)
+		topTitle.Visible = true
 		brand.Visible = false
 		bMin.Text = "−"
 		bMax.Text = zoomed and "▣" or "□"
-		bMin.Position = UDim2.new(1, -92, 0, 6)
-		bMax.Position = UDim2.new(1, -62, 0, 6)
-		bClose.Position = UDim2.new(1, -32, 0, 6)
+		bMin.Position = UDim2.new(1, -78, 0, 2)
+		bMax.Position = UDim2.new(1, -46, 0, 2)
+		bClose.Position = UDim2.new(1, -14, 0, 2)
 	end)
 
 	-- 内容太窄就单列
@@ -1462,14 +1511,10 @@ function applyLayout()
 			end)
 			local b = navButtons[it.item.id]
 			if b then
-				local iconSize = narrow and 15 or 18
-				local labelX = narrow and 26 or 32
+				local labelX = narrow and 10 or 14
 				safe(function()
-					b.iconBox.Size = UDim2.fromOffset(iconSize, iconSize)
-					b.iconBox.Position = UDim2.fromOffset(narrow and 7 or 10, (itemH - iconSize) / 2)
-					b.icon.TextSize = narrow and 11 or 14
 					b.label.Position = UDim2.fromOffset(labelX, 0)
-					b.label.Size = UDim2.new(1, -(labelX + 6), 1, 0)
+					b.label.Size = UDim2.new(1, -(labelX + 8), 1, 0)
 					b.label.TextSize = narrow and 12 or (itemH < 30 and 12 or 14)
 				end)
 			end
