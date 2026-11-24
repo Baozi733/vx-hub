@@ -278,10 +278,10 @@ local scroller = mk("ScrollingFrame", {
 reg(scroller, "ScrollBarImageColor3", "line")
 
 local padding = mk("UIPadding", {
-	PaddingTop = UDim.new(0, 16),
-	PaddingBottom = UDim.new(0, 16),
-	PaddingLeft = UDim.new(0, 16),
-	PaddingRight = UDim.new(0, 16),
+	PaddingTop = UDim.new(0, 12),
+	PaddingBottom = UDim.new(0, 12),
+	PaddingLeft = UDim.new(0, 12),
+	PaddingRight = UDim.new(0, 12),
 }, scroller)
 
 -- ============================================================
@@ -369,16 +369,16 @@ local curView = "home"
 
 local function switchOnOff(parent, isOn)
 	local track = mk("Frame", {
-		Size = UDim2.fromOffset(36, 20),
-		Position = UDim2.new(1, -46, 0.5, -10),
+		Size = UDim2.fromOffset(32, 18),
+		Position = UDim2.new(1, -42, 0.5, -9),
 		BackgroundColor3 = isOn and pal.accent or pal.track,
 		BorderSizePixel = 0,
 	}, parent)
 	mk("UICorner", { CornerRadius = UDim.new(1, 0) }, track)
 
 	local knob = mk("Frame", {
-		Size = UDim2.fromOffset(16, 16),
-		Position = UDim2.new(0, isOn and 18 or 2, 0.5, -8),
+		Size = UDim2.fromOffset(14, 14),
+		Position = UDim2.new(0, isOn and 16 or 2, 0.5, -7),
 		BackgroundColor3 = pal.knob,
 		BorderSizePixel = 0,
 	}, track)
@@ -391,7 +391,7 @@ local function setSwitch(track, knob, isOn)
 	if not track or not knob then return end
 	safe(function()
 		track.BackgroundColor3 = isOn and pal.accent or pal.track
-		knob.Position = UDim2.new(0, isOn and 18 or 2, 0.5, -8)
+		knob.Position = UDim2.new(0, isOn and 16 or 2, 0.5, -7)
 	end)
 end
 
@@ -399,7 +399,7 @@ end
 local function card(grid, title, desc, isOn, onToggle)
 	local cardFrame = mk("Frame", {
 		Name = "Key",
-		Size = UDim2.new(0.5, -5, 0, 62),
+		Size = UDim2.new(0.5, -6, 0, 54),
 		BackgroundColor3 = pal.panel,
 		BorderSizePixel = 0,
 	}, grid)
@@ -408,8 +408,8 @@ local function card(grid, title, desc, isOn, onToggle)
 	reg(cardFrame, "BackgroundColor3", "panel")
 
 	local lbl = mk("TextLabel", {
-		Size = UDim2.new(1, -60, 0, 20),
-		Position = UDim2.fromOffset(12, 12),
+		Size = UDim2.new(1, -56, 0, 18),
+		Position = UDim2.fromOffset(10, 8),
 		BackgroundTransparency = 1,
 		Font = Enum.Font.GothamMedium,
 		TextSize = 14,
@@ -466,7 +466,7 @@ end
 local function sliderCard(grid, title, minVal, maxVal, step, cur, onChanged)
 	local cardFrame = mk("Frame", {
 		Name = "Slider",
-		Size = UDim2.new(0.5, -5, 0, 62),
+		Size = UDim2.new(0.5, -6, 0, 54),
 		BackgroundColor3 = pal.panel,
 		BorderSizePixel = 0,
 	}, grid)
@@ -475,8 +475,8 @@ local function sliderCard(grid, title, minVal, maxVal, step, cur, onChanged)
 	reg(cardFrame, "BackgroundColor3", "panel")
 
 	local lbl = mk("TextLabel", {
-		Size = UDim2.new(1, -60, 0, 18),
-		Position = UDim2.fromOffset(12, 8),
+		Size = UDim2.new(1, -56, 0, 16),
+		Position = UDim2.fromOffset(10, 5),
 		BackgroundTransparency = 1,
 		Font = Enum.Font.Gotham,
 		TextSize = 13,
@@ -486,8 +486,8 @@ local function sliderCard(grid, title, minVal, maxVal, step, cur, onChanged)
 	reg(lbl, "TextColor3", "text")
 
 	local valLbl = mk("TextLabel", {
-		Size = UDim2.fromOffset(52, 18),
-		Position = UDim2.new(1, -64, 0, 8),
+		Size = UDim2.fromOffset(48, 16),
+		Position = UDim2.new(1, -58, 0, 5),
 		BackgroundTransparency = 1,
 		Font = Enum.Font.Gotham,
 		TextSize = 13,
@@ -497,8 +497,8 @@ local function sliderCard(grid, title, minVal, maxVal, step, cur, onChanged)
 	reg(valLbl, "TextColor3", "accent")
 
 	local track = mk("Frame", {
-		Size = UDim2.new(1, -24, 0, 4),
-		Position = UDim2.new(0, 12, 0, 40),
+		Size = UDim2.new(1, -20, 0, 4),
+		Position = UDim2.new(0, 10, 0, 36),
 		BackgroundColor3 = pal.track,
 		BorderSizePixel = 0,
 	}, cardFrame)
@@ -601,7 +601,7 @@ local function makeView(id, title, placeholder)
 		Size = UDim2.fromOffset(200, 24),
 		BackgroundTransparency = 1,
 		Font = Enum.Font.GothamBold,
-		TextSize = 18,
+		TextSize = 16,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		Text = title,
 	}, header)
@@ -663,8 +663,8 @@ local function makeView(id, title, placeholder)
 			BackgroundTransparency = 1,
 		}, body)
 		local lay = mk("UIGridLayout", {
-			CellSize = UDim2.new(0.5, -5, 0, 62),
-			CellPadding = UDim2.fromOffset(10, 10),
+			CellSize = UDim2.new(0.5, -6, 0, 54),
+			CellPadding = UDim2.fromOffset(8, 8),
 			SortOrder = Enum.SortOrder.LayoutOrder,
 			FillDirectionMaxCells = 2,
 		}, g)
@@ -679,31 +679,7 @@ local function makeView(id, title, placeholder)
 		}, body)
 	end
 
-	-- 窗口按钮（最小化 / 最大化 / 关闭）
-	local function winBtn(posX, kind)
-		local b = mk("TextButton", {
-			Size = UDim2.fromOffset(28, 28),
-			Position = UDim2.new(1, posX, 0, 0),
-			BackgroundColor3 = pal.panel,
-			BorderSizePixel = 0,
-			Text = kind == "min" and "-" or (kind == "max" and "□" or "×"),
-			Font = Enum.Font.Gotham,
-			TextSize = 15,
-		}, header)
-		mk("UICorner", { CornerRadius = UDim.new(0, 4) }, b)
-		reg(mk("UIStroke", { Thickness = 1 }, b), "Color", "line")
-		reg(b, "BackgroundColor3", "panel")
-		reg(b, "TextColor3", "text")
-		return b
-	end
-
-	local bMin = winBtn(-96, "min")
-	local bMax = winBtn(-64, "max")
-	local bClose = winBtn(-32, "close")
-
 	views[id] = { frame = view, body = body, section = section, grid = grid, gap = gap, title = title, placeholder = placeholder }
-
-	return bMin, bMax, bClose
 end
 
 -- ============================================================
@@ -772,6 +748,51 @@ for _, item in ipairs(NAV_ITEMS) do
 		navY = navY + 40
 	end
 end
+
+-- ============================================================
+-- 5.5 窗口按钮（全局，永远可见）
+--     − 收成小窗（显示 EX HUD）  □ 放大/还原  × 关闭脚本
+-- ============================================================
+local collapsed = false
+local zoomed2 = false
+
+local function winBtn(posX, kind)
+	local b = mk("TextButton", {
+		Name = "WinBtn_" .. kind,
+		Size = UDim2.fromOffset(26, 26),
+		Position = UDim2.new(1, posX, 0, 6),
+		BackgroundColor3 = pal.panel,
+		BorderSizePixel = 0,
+		ZIndex = 30,
+		Text = (kind == "min" and "−") or (kind == "max" and "□") or "×",
+		Font = Enum.Font.Gotham,
+		TextSize = 15,
+	}, panel)
+	mk("UICorner", { CornerRadius = UDim.new(0, 4) }, b)
+	reg(mk("UIStroke", { Thickness = 1 }, b), "Color", "line")
+	reg(b, "BackgroundColor3", "panel")
+	reg(b, "TextColor3", "text")
+	return b
+end
+
+local bMin   = winBtn(-92, "min")
+local bMax   = winBtn(-62, "max")
+local bClose = winBtn(-32, "close")
+
+-- 收起后显示的牌子
+local brand = mk("TextLabel", {
+	Name = "Brand",
+	Size = UDim2.fromOffset(160, 26),
+	Position = UDim2.fromOffset(12, 5),
+	BackgroundTransparency = 1,
+	Font = Enum.Font.GothamBold,
+	TextSize = 14,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	Text = "EX HUD",
+	Visible = false,
+	ZIndex = 30,
+}, panel)
+reg(brand, "TextColor3", "accent")
 
 -- 侧栏底部
 local footer = mk("TextLabel", {
@@ -1126,7 +1147,7 @@ end
 -- ============================================================
 -- ---- 主页 ----
 do
-	local bMin, bMax, bClose = makeView("home", "主页")
+	makeView("home", "主页")
 	local v = views.home
 
 	v.section("功能")
@@ -1213,33 +1234,46 @@ do
 		panel.Visible = not panel.Visible
 	end)
 
-	-- 窗口按钮：− 最小化成小窗 / □ 放大还原 / × 关闭脚本
-	local minimized = false
-
+	-- 窗口按钮：− 收成小窗（显示 EX HUD） / □ 放大还原 / × 关闭脚本
 	bMin.MouseButton1Click:Connect(function()
-		minimized = not minimized
-		if minimized then
-			-- 收成一条小窗（只剩导航顶部 + 按钮）
+		collapsed = not collapsed
+		if collapsed then
+			zoomed2 = false
 			safe(function()
-				panel.Size = UDim2.fromOffset(PANEL_W, 34)
+				panel.Size = UDim2.fromOffset(math.min(PANEL_W, 420), 36)
 				nav.Visible = false
 				scroller.Visible = false
 				clock.Visible = false
+				brand.Visible = true
 				bMin.Text = "+"
+				bMax.Text = "□"
 			end)
 		else
-			safe(function() bMin.Text = "-" end)
+			safe(function()
+				brand.Visible = false
+				bMin.Text = "−"
+			end)
 			applyLayout()
 		end
 	end)
 
 	bMax.MouseButton1Click:Connect(function()
-		zoomed = not zoomed
-		minimized = false
-		safe(function()
-			bMin.Text = "-"
-			bMax.Text = zoomed and "▣" or "□"
-		end)
+		if collapsed then
+			-- 收起状态下点放大：直接展开并最大化
+			collapsed = false
+			zoomed2 = true
+			safe(function()
+				brand.Visible = false
+				bMin.Text = "−"
+				bMax.Text = "▣"
+			end)
+			zoomed = true
+			applyLayout()
+			return
+		end
+		zoomed2 = not zoomed2
+		zoomed = zoomed2
+		safe(function() bMax.Text = zoomed2 and "▣" or "□" end)
 		applyLayout()
 	end)
 
@@ -1350,11 +1384,27 @@ function applyLayout()
 	PANEL_W, PANEL_H, NAV_W = pw, ph, nw
 
 	safe(function()
-		panel.Size = UDim2.fromOffset(pw, ph)
 		panel.Position = UDim2.new(0.5, -pw / 2, 0.5, -ph / 2)
 		panel.Visible = true
 	end)
+
+	-- 收起状态：只保留小窗 + 牌子 + 按钮，不重排内部
+	if collapsed then
+		safe(function()
+			panel.Size = UDim2.fromOffset(math.min(pw, 420), 36)
+			nav.Visible = false
+			scroller.Visible = false
+			clock.Visible = false
+			brand.Visible = true
+			bMin.Position = UDim2.new(1, -92, 0, 5)
+			bMax.Position = UDim2.new(1, -62, 0, 5)
+			bClose.Position = UDim2.new(1, -32, 0, 5)
+		end)
+		return
+	end
+
 	safe(function()
+		panel.Size = UDim2.fromOffset(pw, ph)
 		nav.Visible = true
 		nav.Size = UDim2.fromOffset(nw, ph)
 	end)
@@ -1363,12 +1413,20 @@ function applyLayout()
 		scroller.Size = UDim2.new(1, -nw, 1, 0)
 		scroller.Position = UDim2.fromOffset(nw, 0)
 	end)
-	safe(function() clock.Visible = true end)
+	safe(function()
+		clock.Visible = true
+		brand.Visible = false
+		bMin.Text = "−"
+		bMax.Text = zoomed and "▣" or "□"
+		bMin.Position = UDim2.new(1, -92, 0, 6)
+		bMax.Position = UDim2.new(1, -62, 0, 6)
+		bClose.Position = UDim2.new(1, -32, 0, 6)
+	end)
 
 	-- 内容太窄就单列
 	local contentW = pw - nw - 32
 	local oneCol = contentW < 430
-	local cellH = MOBILE and 58 or 62
+	local cellH = MOBILE and 50 or 54
 
 	for _, item in ipairs(gridList) do
 		safe(function()
