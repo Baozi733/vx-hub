@@ -206,7 +206,7 @@ local SIZE_PRESET = {
 local NAV_HIGHLIGHT = false
 
 -- 面板位置微调：负值往左/往上，正值往右/往下
-local PANEL_OFFSET_X = 0
+local PANEL_OFFSET_X = 12
 local PANEL_OFFSET_Y = 0
 
 -- 高 DPI 补偿：2400x1080 这类屏幕 ViewportSize 很大，
@@ -317,7 +317,7 @@ local padding = mk("UIPadding", {
 	PaddingTop = UDim.new(0, 42),
 	PaddingBottom = UDim.new(0, 12),
 	PaddingLeft = UDim.new(0, 12),
-	PaddingRight = UDim.new(0, 20),
+	PaddingRight = UDim.new(0, 26),
 }, scroller)
 
 -- ============================================================
@@ -699,7 +699,7 @@ local function makeView(id, title, placeholder)
 			BackgroundTransparency = 1,
 		}, body)
 		local lay = mk("UIGridLayout", {
-			CellSize = UDim2.new(0.5, -8, 0, 54),
+			CellSize = UDim2.new(0.5, -10, 0, 54),
 			CellPadding = UDim2.fromOffset(8, 8),
 			SortOrder = Enum.SortOrder.LayoutOrder,
 			FillDirectionMaxCells = 2,
@@ -1526,7 +1526,7 @@ function applyLayout()
 
 	for _, item in ipairs(gridList) do
 		safe(function()
-			item.lay.CellSize = oneCol and UDim2.new(1, 0, 0, cellH) or UDim2.new(0.5, -8, 0, cellH)
+			item.lay.CellSize = oneCol and UDim2.new(1, 0, 0, cellH) or UDim2.new(0.5, -10, 0, cellH)
 			item.lay.FillDirectionMaxCells = oneCol and 1 or 2
 		end)
 	end
