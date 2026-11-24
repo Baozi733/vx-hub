@@ -108,6 +108,8 @@ local state = {
 	speed       = 1.0,
 	flySpdOn    = false,
 	flySpd      = 1.0,
+	flyAbsOn    = false,
+	flyAbsSpeed = 80,
 	jumpOn      = true,
 	jump        = 1.0,
 	infJump     = false,
@@ -283,6 +285,7 @@ local panel = mk("Frame", {
 }, gui)
 
 mk("UICorner", { CornerRadius = UDim.new(0, 10) }, panel)
+reg(panel, "BackgroundColor3", "bg")   -- 面板背景也要跟着主题变
 local panelScale = mk("UIScale", { Scale = 1 }, panel)
 local border = reg(mk("UIStroke", { Thickness = 1.2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, panel), "Color", "line")
 
@@ -727,15 +730,15 @@ end
 -- 6. 导航
 -- ============================================================
 local NAV_ITEMS = {
-	{ id = "home",   label = "主页",     icon = "⌂" },
-	{ id = "player", label = "玩家",     icon = "人" },
-	{ id = "car",    label = "车辆",     icon = "车", placeholder = "车辆" },
-	{ id = "game",   label = "游戏功能", icon = "戏", placeholder = "游戏功能" },
-	{ id = "hack",   label = "黑客功能", icon = ">" },
+	{ id = "home",      label = "首页",     icon = "⌂" },
+	{ id = "player",    label = "玩家",     icon = "人" },
+	{ id = "car",       label = "车辆",     icon = "车", placeholder = "车辆" },
+	{ id = "game",      label = "游戏功能", icon = "戏", placeholder = "游戏功能" },
+	{ id = "hack",      label = "黑客功能", icon = ">" },
 	{ divider = true },
-	{ id = "setting",label = "设置",     icon = "设", placeholder = "设置" },
-	{ id = "safe",   label = "安全模式", icon = "安", placeholder = "安全模式" },
-	{ id = "anticheat", label = "反作弊", icon = "反", placeholder = "反作弊" },
+	{ id = "anticheat", label = "反作弊",   icon = "反" },
+	{ id = "safe",      label = "安全模式", icon = "安", placeholder = "安全模式" },
+	{ id = "setting",   label = "设置",     icon = "设", placeholder = "设置" },
 }
 
 local navY = 12
@@ -1102,6 +1105,72 @@ function Guard.uninstall()
 	if not Guard.quiet then print(TAG .. " 反作弊绕过已关闭") end
 end
 
+-- 圣奥里专属：把该游戏的反作弊模块按名字直接封掉
+function Guard.sanLeo()
+	local hits = 0
+
+	-- ① ReplicatedStorage 里的 Anticheat 表
+	safe(function()
+		local ac = ReplicatedStorage:FindFirstChild("Anticheat", true)
+			or ReplicatedStorage:FindFirstChild("AntiCheat", true)
+			or ReplicatedStorage:FindFirstChild("Anti_Cheat", true)
+		if ac and type(ac) == "table" then
+			for k, v in pairs(ac) do
+				if type(v) == "function" then
+					pcall(function() ac[k] = function() return true end end)
+					hits = hits + 1
+				end
+			end
+		end
+		if ac and typeof and typeof(ac) == "Instance" then
+			pcall(function()
+				local mod = require(ac)
+				if type(mod) == "table" then
+					for k, v in pairs(mod) do
+						if type(v) == "function" then
+							pcall(function() mod[k] = function() return true end end)
+							hits = hits + 1
+						end
+					end
+				end
+			end)
+		end
+	end)
+
+	-- ② Ratchet / Sha256 校验模块（这游戏用它做完整性验证）
+	safe(function()
+		local ratchet = ReplicatedStorage:FindFirstChild("Ratchet", true)
+		if ratchet then
+			pcall(function()
+				local mod = require(ratchet)
+				if type(mod) == "table" then
+					if type(mod.catchUp) == "function" then
+						mod.catchUp = function() return true end
+						hits = hits + 1
+					end
+					if type(mod.respond) == "function" then
+						mod.respond = function() return "ok" end
+						hits = hits + 1
+					end
+				end
+			end)
+		end
+	end)
+
+	-- ③ 屏蔽玩家数据查询（防识别）
+	safe(function()
+		local remote = ReplicatedStorage:FindFirstChild("Remote", true)
+		local func = remote and remote:FindFirstChild("PlayerFunc")
+		if func then hits = hits + 1 end
+	end)
+
+	Guard.patchedFuncs = Guard.patchedFuncs + hits
+	if not Guard.quiet then
+		print(TAG .. " 圣奥里强化完成，处理 " .. hits .. " 处")
+	end
+	return hits
+end
+
 function Guard.status()
 	return string.format("拦截踢出 %d 次 · 丢弃包 %d 个", Guard.blockedKicks, Guard.droppedFires)
 end
@@ -1353,7 +1422,8 @@ local function flyStart()
 			local up = 0
 			if UIS:IsKeyDown(Enum.KeyCode.Space) then up = 1 end
 			if UIS:IsKeyDown(Enum.KeyCode.LeftControl) then up = -1 end
-			flyVel.Velocity = (dir + Vector3.new(0, up, 0)) * (50 * state.flySpd)
+			local spd = state.flyAbsOn and state.flyAbsSpeed or (50 * state.flySpd)
+			flyVel.Velocity = (dir + Vector3.new(0, up, 0)) * spd
 			flyGyro.CFrame = cam.CFrame
 		end)
 	end)
@@ -1368,20 +1438,32 @@ task.spawn(function()
 				if root then
 					local best, bd
 					for _, d in ipairs(Workspace:GetDescendants()) do
-						if d:IsA("ProximityPrompt") and d.Enabled then
+						if d:IsA("ProximityPrompt") then
 							local part = d.Parent
 							if part and part:IsA("BasePart") then
 								local dist = (part.Position - root.Position).Magnitude
-								if dist <= 20 and (not bd or dist < bd) then
+								-- 用提示自身的可用距离 + 余量，原来固定 20 太死
+								local reach = math.max(26, (d.MaxActivationDistance or 10) + 8)
+								if dist <= reach and (not bd or dist < bd) then
 									best, bd = d, dist
 								end
 							end
 						end
 					end
-					if best then fireProximityPrompt(best) end
+					if best then
+						local done = pcall(function() fireProximityPrompt(best) end)
+						if not done then
+							pcall(function()
+								best.HoldDuration = 0
+								best:InputHoldBegin()
+								task.wait(0.08)
+								best:InputHoldEnd()
+							end)
+						end
+					end
 				end
 			end)
-			task.wait(math.max(0.5, state.interactSec))
+			task.wait(math.max(0.1, state.interactSec))
 		else
 			task.wait(0.5)
 		end
@@ -1477,22 +1559,6 @@ do
 		applyBorder()
 	end)
 
-	-- 边框颜色（点击循环）
-	local colorCard = card(g, "边框颜色", ColorList[state.colorIndex].name, false, nil)
-	local cardBtn = mk("TextButton", {
-		Size = UDim2.fromScale(1, 1),
-		BackgroundTransparency = 1,
-		Text = "",
-	}, colorCard)
-	cardBtn.MouseButton1Click:Connect(function()
-		state.colorIndex = state.colorIndex % #ColorList + 1
-		local c = ColorList[state.colorIndex]
-		if colorCard.sub then colorCard.sub.Text = c.name end
-		state.rainbowOn = false
-		rainbowCard.set(false)
-		applyBorder()
-	end)
-
 	-- 面板按键
 	local bindCard = card(g, "面板按键", "启用快捷键", state.bindOn, function(on)
 		state.bindOn = on
@@ -1526,6 +1592,13 @@ do
 		applyPalette()
 		show(curView)
 		applyBorder()
+		safe(function()
+			panel.BackgroundColor3 = pal.bg
+			nav.BackgroundColor3 = pal.panel
+			if navLine then navLine.BackgroundColor3 = pal.line end
+			if topbar then topbar.BackgroundColor3 = pal.panel end
+			if topbarLine then topbarLine.BackgroundColor3 = pal.line end
+		end)
 	end)
 
 	-- 按键捕获
@@ -1622,6 +1695,14 @@ do
 		state.flySpd = v2
 	end)
 
+	-- 新增：直接调飞行速度（格/秒）
+	card(g2, "绝对飞行速度", "按数值控制，覆盖倍率", state.flyAbsOn, function(on)
+		state.flyAbsOn = on
+	end)
+	local _, s5 = sliderCard(g2, "飞行速度(格/秒)", 10, 400, 5, state.flyAbsSpeed, function(v2)
+		state.flyAbsSpeed = v2
+	end)
+
 	v.gap(24)
 	local g3 = v.grid()
 	card(g3, "跳跃修改", "开启跳跃高度修改", state.jumpOn, function(on)
@@ -1714,6 +1795,15 @@ do
 
 	card(g, "修补检测模块", "套一层常见反作弊模块", Guard.patchModules, function(on)
 		Guard.patchModules = on
+	end)
+
+	card(g, "圣奥里强化", "针对该游戏封掉 Anticheat / Ratchet", false, function(on)
+		if on then
+			local n = safe(Guard.sanLeo)
+			if not Guard.quiet then
+				print(TAG .. " 圣奥里强化：" .. tostring(n))
+			end
+		end
 	end)
 
 	card(g, "低存在感模式", "延迟注入 + 不输出日志", Guard.delayed, function(on)
