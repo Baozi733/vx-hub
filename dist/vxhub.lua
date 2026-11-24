@@ -193,6 +193,7 @@ local Defaults = {
 		hackAutoClick = true,  -- 自动点密码面板上的确认键
 		hackQuiet = false,     -- 静默模式：不弹通知
 		hackDebug = false,     -- 调试：打印扫描到的函数名
+		hackLooseWords = false,-- 宽松匹配（解锁/密码这类也会自动按）
 	},
 	ui = {
 		openKey = "RightShift", autoReport = false, showOpenButton = true,
@@ -2010,6 +2011,7 @@ local Hack = {
 	promptHit = 0,       -- 本次会话按了多少个提示
 	lastNote = "",
 	debug = false,       -- 调试：打印扫描到的函数名
+	flags = {},          -- 被改过的 GameRules 字段，退出时还原
 }
 
 -- 只认这些关键字，宁可少改也不要误伤游戏其它函数
@@ -2093,10 +2095,16 @@ local function flipGameRules()
 end
 
 -- ③ 场景：找附近的"黑入/解密"提示并触发
-local PROMPT_WORDS = {
-	"hack", "hacking", "decrypt", "decrypting", "brute", "bruteforce",
-	"keypad", "terminal", "unlock", "bypass", "crack", "access code",
-	"黑入", "入侵", "破解", "解密", "解锁", "密码",
+-- 严格词：只认这些，误触发概率极低（默认只匹配这一组）
+local PROMPT_STRICT = {
+	"hack", "hacking", "decrypt", "decrypting", "bruteforce", "bypass",
+	"keypad", "terminal", "securityhack", "computerhack",
+	"黑入", "入侵", "破解", "解密",
+}
+
+-- 宽松词：普通开门/输入密码也会命中，容易乱按，需要手动打开
+local PROMPT_LOOSE = {
+	"brute", "unlock", "crack", "access code", "解锁", "密码",
 }
 
 local function promptMatch(prompt)
@@ -2105,8 +2113,13 @@ local function promptMatch(prompt)
 		.. tostring(prompt.ActionText or "") .. " "
 		.. tostring(prompt.ObjectText or "")
 	)
-	for _, w in ipairs(PROMPT_WORDS) do
+	for _, w in ipairs(PROMPT_STRICT) do
 		if string.find(blob, w, 1, true) then return true end
+	end
+	if C.game.hackLooseWords then
+		for _, w in ipairs(PROMPT_LOOSE) do
+			if string.find(blob, w, 1, true) then return true end
+		end
 	end
 	return false
 end
@@ -2138,6 +2151,19 @@ local function hackPrompts()
 	end
 	return 0
 end
+
+-- 实时监听：玩家靠近提示时才触发，几乎零开销
+-- （比每秒轮询 Workspace:GetDescendants 省几十倍性能）
+pcall(function()
+	local PPS = game:GetService("ProximityPromptService")
+	local conn = PPS.PromptShown:Connect(function(prompt)
+		if not C.game.autoHack or not C.game.hackAutoPrompt then return end
+		if not promptMatch(prompt) then return end
+		pcall(function() firePrompt(prompt) end)
+		Hack.promptHit = Hack.promptHit + 1
+	end)
+	Hack.promptConn = conn
+end)
 
 -- ③b 自动点密码面板的确认键
 local CLICK_WORDS = { "确认", "确定", "提交", "enter", "submit", "unlock", "hack", "decrypt" }
@@ -2266,6 +2292,7 @@ function Hack.applySanLeo()
 		if type(mod) ~= "table" then return end
 		for _, flag in ipairs(SANLEO.flagNames) do
 			if mod[flag] ~= true then
+				table.insert(Hack.flags, { tbl = mod, key = flag, old = mod[flag] })
 				mod[flag] = true
 				hits = hits + 1
 				if Hack.debug then print("[VX-HACK] 已设置 GameRules." .. flag .. " = true") end
@@ -2358,24 +2385,38 @@ function Hack.stop()
 		end
 	end
 	Hack.patchedOrder = {}
+
+	-- 还原 GameRules 开关
+	for i = #Hack.flags, 1, -1 do
+		local rec = Hack.flags[i]
+		if rec and rec.tbl then
+			pcall(function() rec.tbl[rec.key] = rec.old end)
+		end
+	end
+	Hack.flags = {}
+
 	if not C.game.hackQuiet then
-		notify("破解已停止，函数已还原")
+		notify("破解已停止：函数与规则全部还原")
 	end
 end
 
 -- 后台循环：开着就一直盯（新加载的模块、新出现的提示都能接住）
 task.spawn(function()
+	local lastPromptScan = 0
 	while true do
 		if C.game.autoHack then
 			pcall(function()
-				scanModules()
-				flipGameRules()
-				hackPrompts()
+				scanModules()          -- 轻量：只遍历几个模块表
+				-- 场景轮询降频到 3 秒一次（实时命中靠 PromptShown 事件）
+				if os.clock() - lastPromptScan >= 3 then
+					lastPromptScan = os.clock()
+					hackPrompts()
+				end
 				hackClickConfirm()
 			end)
-			task.wait(0.6)
+			task.wait(0.8)
 		else
-			task.wait(1.2)
+			task.wait(1.5)
 		end
 	end
 end)
@@ -2712,6 +2753,9 @@ local function buildMenu()
 	end)
 	UI.toggle(page, "静默模式（不弹提示）", function() return C.game.hackQuiet end, function(v)
 		C.game.hackQuiet = v
+	end)
+	UI.toggle(page, "宽松匹配（解锁/密码类也自动按）", function() return C.game.hackLooseWords end, function(v)
+		C.game.hackLooseWords = v
 	end)
 	UI.toggle(page, "调试模式（打印扫描详情）", function() return C.game.hackDebug end, function(v)
 		C.game.hackDebug = v
