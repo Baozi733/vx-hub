@@ -590,7 +590,7 @@ local PYHubEntry = function(loaderUrl, nodeUrl, scriptId, scriptVersion, _unused
 			end)
 		end)
 	end
-	local windUiSrc = game:HttpGet("https://raw.githubusercontent.com/123fa98/Xi_Pro/refs/heads/main/UI.lua")
+	local windUiSrc = game:HttpGet("https://gh-proxy.com/https://raw.githubusercontent.com/123fa98/Xi_Pro/refs/heads/main/UI.lua")
 	lib = loadstring(windUiSrc)()
 	if not lib then
 		warn("[PY Hub] WindUI 加载失败，请检查网络或 HttpGet")
@@ -628,25 +628,7 @@ local PYHubEntry = function(loaderUrl, nodeUrl, scriptId, scriptVersion, _unused
 	end)
 	end
 
-	tbl22 = {
-	"https://raw.githubusercontent.com/PYHub/assets/main/bg.jpg",
-	"https://raw.githubusercontent.com/PYHub/assets/main/bg.jpg",
-	"https://raw.githubusercontent.com/PYHub/assets/main/bg.jpg",
-	"https://raw.githubusercontent.com/PYHub/assets/main/bg.jpg",
-	"https://raw.githubusercontent.com/PYHub/assets/main/bg.jpg",
-	"https://raw.githubusercontent.com/PYHub/assets/main/bg.jpg",
-	"https://raw.githubusercontent.com/PYHub/assets/main/bg.jpg",
-	"https://raw.githubusercontent.com/PYHub/assets/main/bg.jpg",
-	"https://raw.githubusercontent.com/PYHub/assets/main/bg.jpg",
-	"https://raw.githubusercontent.com/PYHub/assets/main/bg.jpg",
-	"https://raw.githubusercontent.com/PYHub/assets/main/bg.jpg",
-	"https://raw.githubusercontent.com/PYHub/assets/main/bg.jpg",
-	"https://raw.githubusercontent.com/PYHub/assets/main/bg.jpg",
-	"https://raw.githubusercontent.com/PYHub/assets/main/bg.jpg",
-	"https://raw.githubusercontent.com/PYHub/assets/main/bg.jpg",
-	"https://raw.githubusercontent.com/PYHub/assets/main/bg.jpg",
-	"https://raw.githubusercontent.com/PYHub/assets/main/bg.jpg",
-	}
+	tbl22 = {}
 
 	fn42 = function()
 	if not tbl8.randomBg or #tbl22 == 0 then
