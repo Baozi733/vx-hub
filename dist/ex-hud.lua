@@ -100,7 +100,6 @@ local state = {
 	-- 主页
 	borderOn    = true,
 	rainbowOn   = false,
-	colorIndex  = 1,
 	bindOn      = true,
 	keyCode     = "Insert",
 	-- 玩家
@@ -110,6 +109,7 @@ local state = {
 	flySpd      = 1.0,
 	flyAbsOn    = false,
 	flyAbsSpeed = 80,
+	flySpeedValue = 100,   -- 飞行速度（格/秒），直接生效
 	jumpOn      = true,
 	jump        = 1.0,
 	infJump     = false,
@@ -139,18 +139,8 @@ local function applyPalette()
 end
 
 -- ============================================================
--- 2. 颜色表（边框颜色循环用，对应 HTML 的调色板）
+-- 2. 边框颜色（固定白色）
 -- ============================================================
-local ColorList = {
-	{ name = "#FFFFFF", c = Color3.fromRGB(255, 255, 255) },
-	{ name = "#9CA3AF", c = Color3.fromRGB(156, 163, 175) },
-	{ name = "#3B82F6", c = Color3.fromRGB(59, 130, 246) },
-	{ name = "#A855F7", c = Color3.fromRGB(168, 85, 247) },
-	{ name = "#EF4444", c = Color3.fromRGB(239, 68, 68) },
-	{ name = "#F59E0B", c = Color3.fromRGB(245, 158, 11) },
-	{ name = "#14B8A6", c = Color3.fromRGB(20, 184, 166) },
-	{ name = "#EC4899", c = Color3.fromRGB(236, 72, 153) },
-}
 
 -- ============================================================
 -- 3. 界面骨架（尺寸按 HTML：nav 180px / padding 16 / gap 10）
@@ -216,21 +206,11 @@ local NAV_HIGHLIGHT = false
 local PANEL_OFFSET_X = 12
 local PANEL_OFFSET_Y = 0
 
--- 高 DPI 补偿：2400x1080 这类屏幕 ViewportSize 很大，
--- 不缩放的话面板只占一小块、字也显得很小
-local function calcUiScale(vp)
-	if not MOBILE then return 1 end
-	local sx = vp.X / 1280
-	local sy = vp.Y / 720
-	local sc = math.min(sx, sy)
-	return math.clamp(sc, 0.70, 2.20)
-end
-
-local UI_SCALE = 1
 
 local running = true      -- 关闭脚本时置 false，所有循环退出
+local customSize = false  -- 用户手动拖过大小后，applyLayout 不再覆盖
 local applyLayout          -- 前向声明：窗口按钮要用
-local zoomed  = false      -- □ 放大状态
+local zoomed = false   -- □ 放大状态（true 时面板铺满屏幕）
 
 -- 计算当前应使用的尺寸（同时按屏幕做上限保护，绝不超出画面）
 local function calcSizes()
@@ -246,14 +226,16 @@ local function calcSizes()
 	local pw, ph, nw
 
 	if cls ~= "pc" then
-		-- 手机 / 平板：按屏幕百分比反推「设计尺寸」，再由 UIScale 放大到实际像素
-		local sc = math.max(0.4, calcUiScale(vp))
-		local fracW, fracH = 0.88, 0.78
-		if cls == "tablet" then fracW, fracH = 0.74, 0.70 end
-		if vp.Y > vp.X then fracW, fracH = fracW + 0.06, fracH + 0.06 end
-		pw = (vp.X * fracW) / sc
-		ph = (vp.Y * fracH) / sc
-		nw = math.clamp(pw * 0.085, 96, 150)
+		-- 手机 / 平板：直接按屏幕百分比算出「整数像素」，不再缩放
+		-- （用小数 UIScale 会让文字发虚，这里改成整像素布局）
+		local fracW, fracH = 0.88, 0.80
+		if cls == "tablet" then fracW, fracH = 0.76, 0.74 end
+		if vp.Y > vp.X then fracW, fracH = fracW + 0.06, fracH + 0.04 end
+		pw = math.floor(vp.X * fracW)
+		ph = math.floor(vp.Y * fracH)
+		pw = math.max(280, pw)
+		ph = math.max(220, ph)
+		nw = math.floor(math.clamp(pw * 0.10, 92, 150))
 	else
 		pw = math.min(preset.w, maxW)
 		ph = math.min(preset.h, maxH)
@@ -274,6 +256,7 @@ end
 
 local PANEL_W, PANEL_H, NAV_W = calcSizes()
 
+local gridList = {}     -- 所有卡片网格（缩放手柄与布局都会用）
 local panel = mk("Frame", {
 	Name = "Main",
 	Size = UDim2.fromOffset(PANEL_W, PANEL_H),
@@ -284,10 +267,138 @@ local panel = mk("Frame", {
 	Active = true,
 }, gui)
 
-mk("UICorner", { CornerRadius = UDim.new(0, 10) }, panel)
+mk("UICorner", { CornerRadius = UDim.new(0, 22) }, panel)   -- iPad 风格大圆角
 reg(panel, "BackgroundColor3", "bg")   -- 面板背景也要跟着主题变
 local panelScale = mk("UIScale", { Scale = 1 }, panel)
-local border = reg(mk("UIStroke", { Thickness = 1.2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, panel), "Color", "line")
+
+-- 内圈机身线：模拟 iPad 的边框与屏幕分界
+local bezel = mk("Frame", {
+	Name = "Bezel",
+	Size = UDim2.new(1, -12, 1, -12),
+	Position = UDim2.fromOffset(6, 6),
+	BackgroundTransparency = 1,
+	BorderSizePixel = 0,
+	ZIndex = 45,
+}, panel)
+mk("UICorner", { CornerRadius = UDim.new(0, 17) }, bezel)
+local bezelStroke = mk("UIStroke", { Thickness = 1 }, bezel)
+bezelStroke.Color = Color3.fromRGB(58, 58, 66)
+bezelStroke.Transparency = 0.35
+
+-- ============================================================
+-- 缩放手柄：右下角 / 左下角拖动即可自由改面板大小
+--   双击手柄 = 恢复默认尺寸
+-- ============================================================
+local function makeGrip(side)
+	local isRight = (side == "br")
+	local grip = mk("TextButton", {
+		Name = "Grip_" .. side,
+		Size = UDim2.fromOffset(20, 20),
+		Position = isRight and UDim2.new(1, -28, 1, -28) or UDim2.new(0, 8, 1, -28),
+		BackgroundTransparency = 1,
+		Text = "",
+		ZIndex = 40,
+	}, panel)
+
+	-- 视觉提示：两条 45° 短线
+	for i = 1, 2 do
+		local line = mk("Frame", {
+			Size = UDim2.fromOffset(9 - (i - 1) * 4, 2),
+			Position = isRight
+				and UDim2.new(1, -4 - 9 + (i - 1) * 4, 1, -4 - (i - 1) * 5)
+				or UDim2.fromOffset(4 + (i - 1) * 4, 0),
+			AnchorPoint = Vector2.zero,
+			BackgroundColor3 = pal.sub,
+			BackgroundTransparency = 0.35,
+			BorderSizePixel = 0,
+			Rotation = -45,
+			ZIndex = 40,
+		}, grip)
+		reg(line, "BackgroundColor3", "sub")
+		if not isRight then
+			line.Position = UDim2.new(0, 4 + (i - 1) * 5, 1, -4 - (i - 1) * 9)
+		end
+	end
+
+	local dragging = false
+	local startSize, startPos, startMouse = nil, nil, nil
+
+	grip.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			startMouse = input.Position
+			startSize = panel.AbsoluteSize
+			startPos = panel.Position
+		end
+	end)
+
+	UIS.InputChanged:Connect(function(input)
+		if not dragging then return end
+		if input.UserInputType == Enum.UserInputType.MouseMovement
+			or input.UserInputType == Enum.UserInputType.Touch then
+			local dx = input.Position.X - startMouse.X
+			local dy = input.Position.Y - startMouse.Y
+
+			local vp = viewport()
+			local minW, minH = 360, 240
+			local maxW, maxH = math.max(minW, vp.X - 16), math.max(minH, vp.Y - 16)
+
+			local newW, newH
+			if isRight then
+				newW = math.clamp(startSize.X + dx, minW, maxW)
+				newH = math.clamp(startSize.Y + dy, minH, maxH)
+				panel.Size = UDim2.fromOffset(newW, newH)
+			else
+				newW = math.clamp(startSize.X - dx, minW, maxW)
+				newH = math.clamp(startSize.Y + dy, minH, maxH)
+				panel.Size = UDim2.fromOffset(newW, newH)
+				panel.Position = UDim2.new(
+					startPos.X.Scale, startPos.X.Offset + (startSize.X - newW),
+					startPos.Y.Scale, startPos.Y.Offset)
+			end
+
+			PANEL_W, PANEL_H = newW, newH
+			customSize = true
+
+			-- 内容列数跟着宽度走
+			local oneCol = (newW - NAV_W - 32) < 430
+			for _, item in ipairs(gridList) do
+				pcall(function()
+					if oneCol then
+						item.lay.CellSize = UDim2.new(1, 0, 0, 46)
+						item.lay.CellPadding = UDim2.fromOffset(0, 8)
+						item.lay.FillDirectionMaxCells = 1
+					else
+						item.lay.CellSize = UDim2.new(0.5, -4, 0, item.h or 54)
+						item.lay.CellPadding = UDim2.fromOffset(8, 8)
+						item.lay.FillDirectionMaxCells = 2
+					end
+				end)
+			end
+		end
+	end)
+
+	UIS.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = false
+		end
+	end)
+
+	-- 双击恢复默认
+	grip.MouseButton1Click:Connect(function()
+		if dragging then return end
+	end)
+
+	return grip
+end
+
+-- 两个把手：右下、左下
+makeGrip("br")
+makeGrip("bl")
+local border = reg(mk("UIStroke", { Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, panel), "Color", "line")
+border.Transparency = 0.15
 
 -- 侧栏
 local nav = mk("Frame", {
@@ -296,6 +407,7 @@ local nav = mk("Frame", {
 	BackgroundColor3 = pal.panel,
 	BorderSizePixel = 0,
 }, panel)
+mk("UICorner", { CornerRadius = UDim.new(0, 22) }, nav)   -- 跟随面板圆角
 reg(nav, "BackgroundColor3", "panel")
 
 local navLine = mk("Frame", {
@@ -321,11 +433,11 @@ local scroller = mk("ScrollingFrame", {
 }, panel)
 reg(scroller, "ScrollBarImageColor3", "line")
 
-local padding = mk("UIPadding", {
+mk("UIPadding", {
 	PaddingTop = UDim.new(0, 42),
-	PaddingBottom = UDim.new(0, 12),
+	PaddingBottom = UDim.new(0, 34),
 	PaddingLeft = UDim.new(0, 12),
-	PaddingRight = UDim.new(0, 26),
+	PaddingRight = UDim.new(0, 16),
 }, scroller)
 
 -- ============================================================
@@ -407,7 +519,6 @@ reg(clock, "TextColor3", "sub")
 -- 4. 通用控件
 -- ============================================================
 local views = {}        -- id -> frame
-local gridList = {}     -- 所有卡片网格，切列数用
 local navButtons = {}   -- id -> { frame, label, icon }
 local curView = "home"
 
@@ -443,17 +554,17 @@ end
 local function card(grid, title, desc, isOn, onToggle)
 	local cardFrame = mk("Frame", {
 		Name = "Key",
-		Size = UDim2.new(0.5, -6, 0, 54),
+		Size = UDim2.new(0.5, -6, 0, 46),
 		BackgroundColor3 = pal.panel,
 		BorderSizePixel = 0,
 	}, grid)
 	mk("UICorner", { CornerRadius = UDim.new(0, 8) }, cardFrame)
-	local stroke = reg(mk("UIStroke", { Thickness = 1 }, cardFrame), "Color", isOn and "accent" or "line")
+	local stroke = reg(mk("UIStroke", { Thickness = 1 }, cardFrame), "Color", "line")   -- 描边固定，不随开关变化
 	reg(cardFrame, "BackgroundColor3", "panel")
 
 	local lbl = mk("TextLabel", {
-		Size = UDim2.new(1, -(CARD_PAD_RIGHT + SWITCH_W + 22), 0, 18),
-		Position = UDim2.fromOffset(10, 8),
+		Size = UDim2.new(1, -(CARD_PAD_RIGHT + SWITCH_W + 22), 0, 16),
+		Position = UDim2.fromOffset(10, 6),
 		BackgroundTransparency = 1,
 		Font = Enum.Font.GothamMedium,
 		TextSize = 14,
@@ -489,9 +600,7 @@ local function card(grid, title, desc, isOn, onToggle)
 	btn.MouseButton1Click:Connect(function()
 		active = not active
 		setSwitch(track, knob, active)
-		safe(function()
-			stroke.Color = active and pal.accent or pal.line
-		end)
+		-- 描边保持原色，不再变成白色高亮
 		if onToggle then safe(onToggle, active) end
 	end)
 
@@ -499,18 +608,161 @@ local function card(grid, title, desc, isOn, onToggle)
 		set = function(v)
 			active = v
 			setSwitch(track, knob, v)
-			safe(function() stroke.Color = v and pal.accent or pal.line end)
 		end,
 		get = function() return active end,
 		sub = sub,
 	}
 end
 
+-- 卡片：标题 + 开关 + 滑块（开关在标题同一行，滑块在下面）
+local function switchSliderCard(grid, title, isOn, onToggle, valueLabel, minVal, maxVal, step, cur, onChanged)
+	local cardFrame = mk("Frame", {
+		Name = "KeySlider",
+		Size = UDim2.new(0.5, -4, 0, 60),
+		BackgroundColor3 = pal.panel,
+		BorderSizePixel = 0,
+	}, grid)
+	mk("UICorner", { CornerRadius = UDim.new(0, 8) }, cardFrame)
+	reg(mk("UIStroke", { Thickness = 1 }, cardFrame), "Color", "line")
+	reg(cardFrame, "BackgroundColor3", "panel")
+
+	-- 标题
+	local lbl = mk("TextLabel", {
+		Size = UDim2.new(1, -(CARD_PAD_RIGHT + SWITCH_W + 22), 0, 16),
+		Position = UDim2.fromOffset(10, 6),
+		BackgroundTransparency = 1,
+		Font = Enum.Font.GothamMedium,
+		TextSize = 13,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Text = title,
+	}, cardFrame)
+	reg(lbl, "TextColor3", "text")
+
+	-- 开关（标题右侧）
+	local track, knob = switchOnOff(cardFrame, isOn)
+	pcall(function() track.Position = UDim2.new(1, -(CARD_PAD_RIGHT + SWITCH_W), 0, 5) end)
+	reg(track, "BackgroundColor3", isOn and "accent" or "track")
+
+	-- 滑块小标题 + 数值
+	local subLbl = mk("TextLabel", {
+		Size = UDim2.fromOffset(70, 14),
+		Position = UDim2.fromOffset(10, 26),
+		BackgroundTransparency = 1,
+		Font = Enum.Font.Gotham,
+		TextSize = 11,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Text = valueLabel or "",
+	}, cardFrame)
+	reg(subLbl, "TextColor3", "sub")
+
+	local valLbl = mk("TextLabel", {
+		Size = UDim2.fromOffset(44, 14),
+		Position = UDim2.new(1, -(CARD_PAD_RIGHT + VALUE_W), 0, 26),
+		BackgroundTransparency = 1,
+		Font = Enum.Font.Gotham,
+		TextSize = 11,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		Text = string.format("%.1f", cur),
+	}, cardFrame)
+	reg(valLbl, "TextColor3", "accent")
+
+	-- 轨道
+	local trackBar = mk("Frame", {
+		Size = UDim2.new(1, -20, 0, 4),
+		Position = UDim2.new(0, 10, 0, 44),
+		BackgroundColor3 = pal.track,
+		BorderSizePixel = 0,
+	}, cardFrame)
+	mk("UICorner", { CornerRadius = UDim.new(1, 0) }, trackBar)
+	reg(trackBar, "BackgroundColor3", "track")
+
+	local ratio = (cur - minVal) / (maxVal - minVal)
+	local fill = mk("Frame", {
+		Size = UDim2.new(ratio, 0, 1, 0),
+		BackgroundColor3 = pal.accent,
+		BorderSizePixel = 0,
+	}, trackBar)
+	mk("UICorner", { CornerRadius = UDim.new(1, 0) }, fill)
+	reg(fill, "BackgroundColor3", "accent")
+
+	local knob2 = mk("Frame", {
+		Size = UDim2.fromOffset(12, 12),
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(ratio, 0, 0.5, 0),
+		BackgroundColor3 = pal.accent,
+		BorderSizePixel = 0,
+	}, trackBar)
+	mk("UICorner", { CornerRadius = UDim.new(1, 0) }, knob2)
+	reg(knob2, "BackgroundColor3", "accent")
+
+	local dragging = false
+	local function setValue(v)
+		v = math.clamp(v, minVal, maxVal)
+		if step and step > 0 then
+			v = math.floor(v / step + 0.5) * step
+			v = math.clamp(v, minVal, maxVal)
+		end
+		local r = (v - minVal) / (maxVal - minVal)
+		fill.Size = UDim2.new(r, 0, 1, 0)
+		knob2.Position = UDim2.new(r, 0, 0.5, 0)
+		valLbl.Text = string.format("%.1f", v)
+		if onChanged then safe(onChanged, v) end
+		return v
+	end
+	local function fromX(x)
+		local absX = trackBar.AbsolutePosition.X
+		local w = math.max(trackBar.AbsoluteSize.X, 1)
+		setValue(minVal + (maxVal - minVal) * math.clamp((x - absX) / w, 0, 1))
+	end
+	local hit = mk("TextButton", {
+		Size = UDim2.new(1, 0, 0, 20),
+		Position = UDim2.new(0, 0, 0.5, -10),
+		BackgroundTransparency = 1,
+		Text = "",
+	}, trackBar)
+	hit.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			fromX(input.Position.X)
+		end
+	end)
+	UIS.InputChanged:Connect(function(input)
+		if not dragging then return end
+		if input.UserInputType == Enum.UserInputType.MouseMovement
+			or input.UserInputType == Enum.UserInputType.Touch then
+			fromX(input.Position.X)
+		end
+	end)
+	UIS.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = false
+		end
+	end)
+
+	-- 点开关（不能点到滑块区域）
+	local active = isOn
+	local swBtn = mk("TextButton", {
+		Size = UDim2.new(0, SWITCH_W + 10, 0, 22),
+		Position = UDim2.new(1, -(CARD_PAD_RIGHT + SWITCH_W + 5), 0, 2),
+		BackgroundTransparency = 1,
+		Text = "",
+	}, cardFrame)
+	swBtn.MouseButton1Click:Connect(function()
+		active = not active
+		setSwitch(track, knob, active)
+		if onToggle then safe(onToggle, active) end
+	end)
+
+	return cardFrame, { set = setValue }
+end
+
 -- 卡片：标题 + 滑块（对应 HTML 的 range + number）
 local function sliderCard(grid, title, minVal, maxVal, step, cur, onChanged)
 	local cardFrame = mk("Frame", {
 		Name = "Slider",
-		Size = UDim2.new(0.5, -6, 0, 54),
+		Size = UDim2.new(0.5, -6, 0, 46),
 		BackgroundColor3 = pal.panel,
 		BorderSizePixel = 0,
 	}, grid)
@@ -542,7 +794,7 @@ local function sliderCard(grid, title, minVal, maxVal, step, cur, onChanged)
 
 	local track = mk("Frame", {
 		Size = UDim2.new(1, -20, 0, 4),
-		Position = UDim2.new(0, 10, 0, 36),
+		Position = UDim2.new(0, 10, 0, 32),
 		BackgroundColor3 = pal.track,
 		BorderSizePixel = 0,
 	}, cardFrame)
@@ -651,30 +903,6 @@ local function makeView(id, title, placeholder)
 	}, header)
 	reg(h1, "TextColor3", "text")
 
-	local statusWrap = mk("Frame", {
-		Size = UDim2.fromOffset(90, 20),
-		Position = UDim2.new(1, -190, 0.5, -10),
-		BackgroundTransparency = 1,
-	}, header)
-	local led = mk("Frame", {
-		Size = UDim2.fromOffset(8, 8),
-		Position = UDim2.new(0, 0, 0.5, -4),
-		BackgroundColor3 = pal.accent,
-		BorderSizePixel = 0,
-	}, statusWrap)
-	mk("UICorner", { CornerRadius = UDim.new(1, 0) }, led)
-	reg(led, "BackgroundColor3", "ok")   -- 运行状态：绿色
-	local stTxt = mk("TextLabel", {
-		Size = UDim2.new(1, -14, 1, 0),
-		Position = UDim2.fromOffset(14, 0),
-		BackgroundTransparency = 1,
-		Font = Enum.Font.Gotham,
-		TextSize = 13,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		Text = "运行中",
-	}, statusWrap)
-	reg(stTxt, "TextColor3", "ok")    -- “运行中”文字也绿色
-
 	-- 内容区
 	local body = mk("Frame", {
 		Size = UDim2.new(1, 0, 0, 0),
@@ -700,19 +928,23 @@ local function makeView(id, title, placeholder)
 		return s
 	end
 
-	local function grid()
+	local function grid(h)
+		local rowH = h or 46
 		local g = mk("Frame", {
 			Size = UDim2.new(1, 0, 0, 0),
 			AutomaticSize = Enum.AutomaticSize.Y,
 			BackgroundTransparency = 1,
 		}, body)
+		-- 网格容器自己再留 14px 右边距（保证卡片轮廓一定露出来）
+		mk("UIPadding", { PaddingRight = UDim.new(0, 14) }, g)
+
 		local lay = mk("UIGridLayout", {
-			CellSize = UDim2.new(0.5, -10, 0, 54),
+			CellSize = UDim2.new(0.5, -4, 0, rowH),
 			CellPadding = UDim2.fromOffset(8, 8),
 			SortOrder = Enum.SortOrder.LayoutOrder,
 			FillDirectionMaxCells = 2,
 		}, g)
-		table.insert(gridList, { lay = lay, frame = g })
+		table.insert(gridList, { lay = lay, frame = g, h = rowH })
 		return g
 	end
 
@@ -722,6 +954,13 @@ local function makeView(id, title, placeholder)
 			BackgroundTransparency = 1,
 		}, body)
 	end
+
+	-- 页面底部预留 14px，保证最后一张卡片不贴底部边框
+	mk(Frame, {
+		Size = UDim2.new(1, 0, 0, 14),
+		BackgroundTransparency = 1,
+		LayoutOrder = 9999,
+	}, body)
 
 	views[id] = { frame = view, body = body, section = section, grid = grid, gap = gap, title = title, placeholder = placeholder }
 end
@@ -785,7 +1024,6 @@ end
 --     − 收成小窗（显示 EX HUD）  □ 放大/还原  × 关闭脚本
 -- ============================================================
 local collapsed = false
-local zoomed2 = false
 
 local function winBtn(posX, kind)
 	local b = mk("TextButton", {
@@ -810,9 +1048,9 @@ local function winBtn(posX, kind)
 	return b
 end
 
-local bMin   = winBtn(-78, "min")
-local bMax   = winBtn(-46, "max")
-local bClose = winBtn(-14, "close")
+local bMin   = winBtn(-90, "min")
+local bMax   = winBtn(-58, "max")
+local bClose = winBtn(-26, "close")
 
 -- 收起后显示的牌子
 local brand = mk("TextLabel", {
@@ -839,6 +1077,7 @@ local topbar = mk("Frame", {
 	BorderSizePixel = 0,
 	ZIndex = 25,
 }, panel)
+mk("UICorner", { CornerRadius = UDim.new(0, 22) }, topbar)
 reg(topbar, "BackgroundColor3", "panel")
 
 local topbarLine = mk("Frame", {
@@ -865,11 +1104,39 @@ local topTitle = mk("TextLabel", {
 }, panel)
 reg(topTitle, "TextColor3", "accent")
 
--- 时钟挪进顶栏并居中
+-- 顶栏右侧：运行状态（全局一份，位于按钮左边）
+local runLed = mk("Frame", {
+	Name = "RunLed",
+	Size = UDim2.fromOffset(8, 8),
+	Position = UDim2.new(1, -152, 0, 11),
+	BackgroundColor3 = pal.accent,
+	BorderSizePixel = 0,
+	ZIndex = 27,
+}, topbar)
+mk("UICorner", { CornerRadius = UDim.new(1, 0) }, runLed)
+reg(runLed, "BackgroundColor3", "ok")
+
+local runTxt = mk("TextLabel", {
+	Name = "RunTxt",
+	Size = UDim2.fromOffset(60, 20),
+	Position = UDim2.new(1, -140, 0, 5),
+	BackgroundTransparency = 1,
+	Font = Enum.Font.Gotham,
+	TextSize = 12,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	Text = "运行中",
+	ZIndex = 27,
+}, topbar)
+reg(runTxt, "TextColor3", "ok")
+
+-- 时钟放到侧栏顶部，「EX HUD」右边
 safe(function()
-	clock.Parent = topbar
-	clock.Position = UDim2.new(0.5, -60, 0, 6)
-	clock.ZIndex = 26
+	clock.Parent = panel
+	clock.Size = UDim2.fromOffset(math.max(48, NAV_W - 82), 18)
+	clock.Position = UDim2.fromOffset(74, 5)
+	clock.TextSize = 11
+	clock.TextXAlignment = Enum.TextXAlignment.Left
+	clock.ZIndex = 27
 end)
 
 -- 三个按钮挂到顶栏
@@ -877,9 +1144,9 @@ safe(function()
 	bMin.Parent = topbar
 	bMax.Parent = topbar
 	bClose.Parent = topbar
-	bMin.Position = UDim2.new(1, -78, 0, 2)
-	bMax.Position = UDim2.new(1, -46, 0, 2)
-	bClose.Position = UDim2.new(1, -14, 0, 2)
+	bMin.Position = UDim2.new(1, -90, 0, 2)
+	bMax.Position = UDim2.new(1, -58, 0, 2)
+	bClose.Position = UDim2.new(1, -26, 0, 2)
 	bMin.ZIndex = 27
 	bMax.ZIndex = 27
 	bClose.ZIndex = 27
@@ -888,7 +1155,7 @@ end)
 -- 侧栏底部
 local footer = mk("TextLabel", {
 	Size = UDim2.new(1, -20, 0, 16),
-	Position = UDim2.new(0, 10, 1, -28),
+	Position = UDim2.new(0, 10, 1, -36),
 	BackgroundTransparency = 1,
 	Font = Enum.Font.Gotham,
 	TextSize = 12,
@@ -1411,7 +1678,9 @@ end)
 -- 飞行
 local flyConn, flyVel, flyGyro, controls
 safe(function()
-	controls = require(LP.PlayerScripts:WaitForChild("PlayerModule")):GetControls()
+	local pm = LP.PlayerScripts:FindFirstChild("PlayerModule")
+	if not pm then pm = LP.PlayerScripts:WaitForChild("PlayerModule", 3) end
+	if pm then controls = require(pm):GetControls() end
 end)
 
 local function flyStop()
@@ -1457,7 +1726,10 @@ local function flyStart()
 			local up = 0
 			if UIS:IsKeyDown(Enum.KeyCode.Space) then up = 1 end
 			if UIS:IsKeyDown(Enum.KeyCode.LeftControl) then up = -1 end
-			local spd = state.flyAbsOn and state.flyAbsSpeed or (50 * state.flySpd)
+			-- 飞行速度优先级：倍率 > 绝对值 > 默认数值
+			local spd = state.flySpeedValue or 100
+			if state.flyAbsOn then spd = state.flyAbsSpeed end
+			if state.flySpdOn then spd = 50 * state.flySpd end
 			flyVel.Velocity = (dir + Vector3.new(0, up, 0)) * spd
 			flyGyro.CFrame = cam.CFrame
 		end)
@@ -1534,8 +1806,7 @@ local function applyBorder()
 	safe(function()
 		border.Enabled = state.borderOn
 		if not state.rainbowOn then
-			local c = ColorList[state.colorIndex]
-			border.Color = c and c.c or pal.line
+			border.Color = Color3.fromRGB(235, 235, 240)   -- 固定白色描边
 		end
 	end)
 end
@@ -1613,16 +1884,11 @@ do
 	end)
 
 	-- 切换主题（点击切换）
-	local themeCard = card(g, "切换主题", state.theme == "dark" and "深色主题" or "白色主题", false, nil)
-	local themeBtn = mk("TextButton", {
-		Size = UDim2.fromScale(1, 1),
-		BackgroundTransparency = 1,
-		Text = "",
-	}, themeCard)
-	themeBtn.MouseButton1Click:Connect(function()
-		state.theme = (state.theme == "dark") and "light" or "dark"
+	local themeCard = card(g, "切换主题", "当前：深色主题", false, function()
+		local nextTheme = (state.theme == "dark") and "light" or "dark"
+		state.theme = nextTheme
 		if themeCard.sub then
-			themeCard.sub.Text = state.theme == "dark" and "深色主题" or "白色主题"
+			themeCard.sub.Text = nextTheme == "dark" and "当前：深色主题" or "当前：白色主题"
 		end
 		applyPalette()
 		show(curView)
@@ -1634,6 +1900,9 @@ do
 			if topbar then topbar.BackgroundColor3 = pal.panel end
 			if topbarLine then topbarLine.BackgroundColor3 = pal.line end
 		end)
+		if not Guard.quiet then
+			print(TAG .. " 主题切换为：" .. nextTheme)
+		end
 	end)
 
 	-- 按键捕获
@@ -1658,7 +1927,7 @@ do
 	bMin.MouseButton1Click:Connect(function()
 		collapsed = not collapsed
 		if collapsed then
-			zoomed2 = false
+			zoomed = false
 			safe(function()
 				panel.Size = UDim2.fromOffset(math.min(PANEL_W, 420), 36)
 				nav.Visible = false
@@ -1681,7 +1950,7 @@ do
 		if collapsed then
 			-- 收起状态下点放大：直接展开并最大化
 			collapsed = false
-			zoomed2 = true
+			zoomed = true
 			safe(function()
 				brand.Visible = false
 				bMin.Text = "−"
@@ -1691,9 +1960,8 @@ do
 			applyLayout()
 			return
 		end
-		zoomed2 = not zoomed2
-		zoomed = zoomed2
-		safe(function() bMax.Text = zoomed2 and "▣" or "□" end)
+		zoomed = not zoomed
+		safe(function() bMax.Text = zoomed and "▣" or "□" end)
 		applyLayout()
 	end)
 
@@ -1713,59 +1981,66 @@ do
 	local v = views.player
 
 	v.section("")
+
+	-- 第 1 排：速度修改 | 速度值
 	local g1 = v.grid()
 	card(g1, "速度修改", "开启移动速度修改", state.speedOn, function(on)
 		state.speedOn = on
 	end)
-	local _, s1 = sliderCard(g1, "速度值", 0.1, 10.0, 0.1, state.speed, function(v2)
+	local _, sSpeed = sliderCard(g1, "速度值", 0.1, 10.0, 0.1, state.speed, function(v2)
 		state.speed = v2
 	end)
 
-	v.gap(16)
+	-- 第 2~5 排：原来的顺序
+	v.gap(12)
 	local g2 = v.grid()
-	card(g2, "飞行速度", "独立飞行速度倍率", state.flySpdOn, function(on)
-		state.flySpdOn = on
-	end)
-	local _, s2 = sliderCard(g2, "倍率", 0.1, 15.0, 0.1, state.flySpd, function(v2)
-		state.flySpd = v2
-	end)
-
-	-- 新增：直接调飞行速度（格/秒）
-	card(g2, "绝对飞行速度", "按数值控制，覆盖倍率", state.flyAbsOn, function(on)
-		state.flyAbsOn = on
-	end)
-	local _, s5 = sliderCard(g2, "飞行速度(格/秒)", 10, 400, 5, state.flyAbsSpeed, function(v2)
-		state.flyAbsSpeed = v2
-	end)
-
-	v.gap(24)
-	local g3 = v.grid()
-	card(g3, "跳跃修改", "开启跳跃高度修改", state.jumpOn, function(on)
+	card(g2, "跳跃修改", "开启跳跃高度修改", state.jumpOn, function(on)
 		state.jumpOn = on
 	end)
-	local _, s3 = sliderCard(g3, "跳跃高度", 0.1, 10.0, 0.1, state.jump, function(v2)
+	local _, sJump = sliderCard(g2, "跳跃高度", 0.1, 10.0, 0.1, state.jump, function(v2)
 		state.jump = v2
 	end)
 
-	card(g3, "无限跳跃", "", state.infJump, function(on)
+	card(g2, "无限跳跃", "", state.infJump, function(on)
 		state.infJump = on
 	end)
 
-	card(g3, "飞行", "", state.fly, function(on)
+	card(g2, "飞行", "", state.fly, function(on)
 		state.fly = on
 		if on then safe(flyStart) else safe(flyStop) end
 	end)
 
-	card(g3, "穿墙", "", state.noclip, function(on)
+	local _, sFly = sliderCard(g2, "飞行速度(格/秒)", 20, 400, 5, state.flySpeedValue, function(v2)
+		state.flySpeedValue = v2
+	end)
+
+	card(g2, "穿墙", "", state.noclip, function(on)
 		state.noclip = on
 	end)
 
-	card(g3, "互动", "", state.interactOn, function(on)
+	card(g2, "互动", "", state.interactOn, function(on)
 		state.interactOn = on
 	end)
 
-	local _, s4 = sliderCard(g3, "互动时间(秒)", 0.1, 10.0, 0.1, state.interactSec, function(v2)
+	local _, sInt = sliderCard(g2, "互动时间(秒)", 0.1, 10.0, 0.1, state.interactSec, function(v2)
 		state.interactSec = v2
+	end)
+
+	-- 第 6~7 排：倍率 / 绝对速度（额外保留）
+	v.gap(12)
+	local g3 = v.grid()
+	card(g3, "飞行速度", "独立飞行速度倍率", state.flySpdOn, function(on)
+		state.flySpdOn = on
+	end)
+	local _, sMul = sliderCard(g3, "倍率", 0.1, 15.0, 0.1, state.flySpd, function(v2)
+		state.flySpd = v2
+	end)
+
+	card(g3, "绝对飞行速度", "按数值控制，覆盖倍率", state.flyAbsOn, function(on)
+		state.flyAbsOn = on
+	end)
+	local _, sAbs = sliderCard(g3, "绝对速度值", 10, 400, 5, state.flyAbsSpeed, function(v2)
+		state.flyAbsSpeed = v2
 	end)
 end
 
@@ -1964,20 +2239,18 @@ end
 -- 11.5 屏幕自适应（手机 / 电脑 / 横竖屏切换）
 -- ============================================================
 function applyLayout()
+	if customSize then
+		-- 用户手动调过大小，不再按预设覆盖
+		return
+	end
 	local pw, ph, nw = calcSizes()
 	PANEL_W, PANEL_H, NAV_W = pw, ph, nw
 
-	-- 计算缩放，并保证缩放后面板不超出屏幕
-	local vp = viewport()
-	local sc = calcUiScale(vp)
-	if pw * sc > vp.X - 12 then sc = (vp.X - 12) / pw end
-	if ph * sc > vp.Y - 12 then sc = math.min(sc, (vp.Y - 12) / ph) end
-	UI_SCALE = sc
+	-- 不再用 UIScale（小数缩放会让文字发虚），直接按整像素定位
 
 	safe(function()
-		panelScale.Scale = sc
-		local w, h = pw * sc, ph * sc
-		panel.Position = UDim2.new(0.5, -w / 2 + PANEL_OFFSET_X, 0.5, -h / 2 + PANEL_OFFSET_Y)
+		if panelScale then panelScale.Scale = 1 end
+		panel.Position = UDim2.new(0.5, -pw / 2 + PANEL_OFFSET_X, 0.5, -ph / 2 + PANEL_OFFSET_Y)
 		panel.Visible = true
 	end)
 
@@ -2009,26 +2282,36 @@ function applyLayout()
 		topbar.Size = UDim2.new(1, -nw, 0, 30)
 		topbar.Position = UDim2.fromOffset(nw, 0)
 		clock.Visible = true
-		clock.Position = UDim2.new(0.5, -60, 0, 6)
+		-- 紧挨 EX HUD 右边
+		clock.Position = UDim2.fromOffset(74, 5)
+		clock.Size = UDim2.fromOffset(math.max(46, nw - 80), 18)
+		clock.TextSize = (nw < 130) and 10 or 11
 		topTitle.Size = UDim2.fromOffset(math.max(50, nw - 16), 28)
 		topTitle.Visible = true
 		brand.Visible = false
 		bMin.Text = "−"
 		bMax.Text = zoomed and "▣" or "□"
-		bMin.Position = UDim2.new(1, -78, 0, 2)
-		bMax.Position = UDim2.new(1, -46, 0, 2)
-		bClose.Position = UDim2.new(1, -14, 0, 2)
+		bMin.Position = UDim2.new(1, -90, 0, 2)
+		bMax.Position = UDim2.new(1, -58, 0, 2)
+		bClose.Position = UDim2.new(1, -26, 0, 2)
 	end)
 
 	-- 内容太窄就单列
 	local contentW = pw - nw - 32
-	local oneCol = contentW < 430
-	local cellH = MOBILE and 50 or 54
+	local oneCol = contentW < 430   -- 窄了自动单列，够宽就双列
+	local cellH = MOBILE and 44 or 46
 
 	for _, item in ipairs(gridList) do
 		safe(function()
-			item.lay.CellSize = oneCol and UDim2.new(1, 0, 0, cellH) or UDim2.new(0.5, -10, 0, cellH)
-			item.lay.FillDirectionMaxCells = oneCol and 1 or 2
+			if oneCol then
+				item.lay.CellSize = UDim2.new(1, 0, 0, item.h or cellH)
+				item.lay.CellPadding = UDim2.fromOffset(0, 8)
+				item.lay.FillDirectionMaxCells = 1
+			else
+				item.lay.CellSize = UDim2.new(0.5, -4, 0, item.h or cellH)
+				item.lay.CellPadding = UDim2.fromOffset(8, 8)
+				item.lay.FillDirectionMaxCells = 2
+			end
 		end)
 	end
 
@@ -2073,7 +2356,7 @@ function applyLayout()
 	-- 底部版本文字：面板太矮就隐藏，避免压住导航
 	safe(function()
 		footer.Visible = (ph >= 360)
-		footer.Position = UDim2.new(0, 10, 1, -26)
+		footer.Position = UDim2.new(0, 10, 1, -34)
 	end)
 
 	-- 拖条尺寸跟着窗口走
@@ -2090,7 +2373,15 @@ function applyLayout()
 		end)
 	end
 
-	safe(function() clock.TextSize = MOBILE and 11 or 13 end)
+	safe(function()
+		clock.TextSize = (nw < 130) and 10 or 11
+		-- 按钮占位 92px，状态文字放它左边
+		if runLed and runTxt then
+			runLed.Position = UDim2.new(1, -168, 0, 11)
+			runTxt.Position = UDim2.new(1, -156, 0, 5)
+			runTxt.TextSize = MOBILE and 11 or 12
+		end
+	end)
 end
 
 safe(applyLayout)
