@@ -1,14 +1,3 @@
---[[
-	EX HUD —— 完全按 ex-hud.html 复刻
-	------------------------------------------------------------------
-	布局：左侧 180 导航 / 右侧滚动区 / 顶部时钟 / 卡片两列网格
-	主题：深色 + 白色（绿色强调色，和 HTML 的 CSS 变量一一对应）
-	功能：主页（边框/按键/主题）、玩家（速度/飞行/跳跃/穿墙/互动）、黑客功能（一键破解）
-	其余导航项按 HTML 走「暂无功能」占位
-	------------------------------------------------------------------
-	快捷键：默认 Insert 开关面板（可在主页改）
-]]
-
 -- ============================================================
 -- 0. 服务与兼容层
 -- ============================================================
@@ -73,11 +62,12 @@ local Themes = {
 		line    = Color3.fromRGB(39, 39, 42),    -- #27272a
 		text    = Color3.fromRGB(238, 238, 238), -- #eee
 		sub     = Color3.fromRGB(136, 136, 136), -- #888
-		accent  = Color3.fromRGB(34, 197, 94),   -- #22c55e
-		soft    = Color3.fromRGB(26, 61, 40),    -- accent-soft 近似
+		accent  = Color3.fromRGB(238, 238, 238), -- #eeeeee（原绿色已改白）
+		soft    = Color3.fromRGB(39, 39, 42),    -- 选中底色改中性灰
 		track   = Color3.fromRGB(51, 51, 51),    -- #333
 		input   = Color3.fromRGB(34, 34, 34),    -- #222
 		knob    = Color3.fromRGB(255, 255, 255),
+		ok      = Color3.fromRGB(34, 197, 94),   -- 运行状态绿（只给状态点用）
 	},
 	light = {
 		bg      = Color3.fromRGB(244, 244, 245), -- #f4f4f5
@@ -85,11 +75,12 @@ local Themes = {
 		line    = Color3.fromRGB(228, 228, 231), -- #e4e4e7
 		text    = Color3.fromRGB(24, 24, 27),    -- #18181b
 		sub     = Color3.fromRGB(113, 113, 122), -- #71717a
-		accent  = Color3.fromRGB(22, 163, 74),   -- #16a34a
-		soft    = Color3.fromRGB(220, 240, 228), -- accent-soft 近似
+		accent  = Color3.fromRGB(24, 24, 27),    -- #18181b（浅色主题用黑）
+		soft    = Color3.fromRGB(228, 228, 231), -- 选中底色改中性灰
 		track   = Color3.fromRGB(212, 212, 216), -- #d4d4d8
 		input   = Color3.fromRGB(244, 244, 245), -- #f4f4f5
 		knob    = Color3.fromRGB(255, 255, 255),
+		ok      = Color3.fromRGB(34, 197, 94),
 	},
 }
 
@@ -139,7 +130,7 @@ end
 -- ============================================================
 local ColorList = {
 	{ name = "#FFFFFF", c = Color3.fromRGB(255, 255, 255) },
-	{ name = "#22C55E", c = Color3.fromRGB(34, 197, 94) },
+	{ name = "#9CA3AF", c = Color3.fromRGB(156, 163, 175) },
 	{ name = "#3B82F6", c = Color3.fromRGB(59, 130, 246) },
 	{ name = "#A855F7", c = Color3.fromRGB(168, 85, 247) },
 	{ name = "#EF4444", c = Color3.fromRGB(239, 68, 68) },
@@ -178,9 +169,16 @@ local function deviceClass()
 	local vp = viewport()
 	local touchOnly = UIS.TouchEnabled and not UIS.KeyboardEnabled
 	if not touchOnly then return "pc" end
-	-- 平板：短边 >= 600（手机横屏短边一般 300~500）
-	if math.min(vp.X, vp.Y) >= 600 then return "tablet" end
-	return "phone"
+
+	-- 用长宽比区分手机 / 平板：
+	--   手机 20:9 ≈ 2.22、19.5:9 ≈ 2.17、16:9 ≈ 1.78
+	--   平板 4:3 ≈ 1.33、16:10 ≈ 1.60
+	local longSide = math.max(vp.X, vp.Y)
+	local shortSide = math.max(1, math.min(vp.X, vp.Y))
+	local aspect = longSide / shortSide
+
+	if aspect >= 1.70 then return "phone" end
+	return "tablet"
 end
 
 local DEVICE = deviceClass()
@@ -188,10 +186,29 @@ local MOBILE = (DEVICE ~= "pc")
 
 -- 每种设备的标准尺寸（单位：像素）
 local SIZE_PRESET = {
-	pc     = { w = 760, h = 520, nav = 148 },
-	tablet = { w = 700, h = 500, nav = 132 },
-	phone  = { w = 660, h = 360, nav = 106 },
+	pc     = { w = 750, h = 500, nav = 110 },
+	tablet = { w = 700, h = 470, nav = 104 },
+	phone  = { w = 700, h = 470, nav = 100 },
 }
+
+-- 侧栏选中项是否显示高亮底色（false = 不显示颜色，只有文字变白）
+local NAV_HIGHLIGHT = false
+
+-- 面板位置微调：负值往左/往上，正值往右/往下
+local PANEL_OFFSET_X = 0
+local PANEL_OFFSET_Y = 0
+
+-- 高 DPI 补偿：2400x1080 这类屏幕 ViewportSize 很大，
+-- 不缩放的话面板只占一小块、字也显得很小
+local function calcUiScale(vp)
+	if not MOBILE then return 1 end
+	local sx = vp.X / 1280
+	local sy = vp.Y / 720
+	local sc = math.min(sx, sy)
+	return math.clamp(sc, 0.70, 2.20)
+end
+
+local UI_SCALE = 1
 
 local running = true      -- 关闭脚本时置 false，所有循环退出
 local applyLayout          -- 前向声明：窗口按钮要用
@@ -208,24 +225,30 @@ local function calcSizes()
 	local maxH = math.max(220, vp.Y - 16)
 	local preset = SIZE_PRESET[cls] or SIZE_PRESET.pc
 
-	local pw = math.min(preset.w, maxW)
-	local ph = math.min(preset.h, maxH)
+	local pw, ph, nw
 
-	-- 手机竖屏时收窄、拉高
-	if cls == "phone" and vp.Y > vp.X then
-		pw = math.min(vp.X * 0.96, 480)
-		ph = math.min(vp.Y * 0.80, 620)
+	if cls ~= "pc" then
+		-- 手机 / 平板：按屏幕百分比反推「设计尺寸」，再由 UIScale 放大到实际像素
+		local sc = math.max(0.4, calcUiScale(vp))
+		local fracW, fracH = 0.88, 0.78
+		if cls == "tablet" then fracW, fracH = 0.74, 0.70 end
+		if vp.Y > vp.X then fracW, fracH = fracW + 0.06, fracH + 0.06 end
+		pw = (vp.X * fracW) / sc
+		ph = (vp.Y * fracH) / sc
+		nw = math.clamp(pw * 0.085, 96, 150)
+	else
+		pw = math.min(preset.w, maxW)
+		ph = math.min(preset.h, maxH)
+		nw = preset.nav
+		if pw - nw < 260 then
+			nw = math.clamp(pw * 0.26, 88, preset.nav)
+		end
 	end
 
 	-- 放大状态：占满屏幕（留 8 边距）
 	if zoomed then
 		pw = maxW
 		ph = maxH
-	end
-
-	local nw = preset.nav
-	if pw - nw < 260 then
-		nw = math.clamp(pw * 0.26, 88, preset.nav)
 	end
 
 	return math.floor(pw), math.floor(ph), math.floor(nw)
@@ -244,6 +267,7 @@ local panel = mk("Frame", {
 }, gui)
 
 mk("UICorner", { CornerRadius = UDim.new(0, 10) }, panel)
+local panelScale = mk("UIScale", { Scale = 1 }, panel)
 local border = reg(mk("UIStroke", { Thickness = 1.2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, panel), "Color", "line")
 
 -- 侧栏
@@ -619,7 +643,7 @@ local function makeView(id, title, placeholder)
 		BorderSizePixel = 0,
 	}, statusWrap)
 	mk("UICorner", { CornerRadius = UDim.new(1, 0) }, led)
-	reg(led, "BackgroundColor3", "accent")
+	reg(led, "BackgroundColor3", "ok")   -- 运行状态：绿色
 	local stTxt = mk("TextLabel", {
 		Size = UDim2.new(1, -14, 1, 0),
 		Position = UDim2.fromOffset(14, 0),
@@ -629,7 +653,7 @@ local function makeView(id, title, placeholder)
 		TextXAlignment = Enum.TextXAlignment.Left,
 		Text = "运行中",
 	}, statusWrap)
-	reg(stTxt, "TextColor3", "sub")
+	reg(stTxt, "TextColor3", "ok")    -- “运行中”文字也绿色
 
 	-- 内容区
 	local body = mk("Frame", {
@@ -1179,9 +1203,11 @@ local function show(id)
 	for nid, b in pairs(navButtons) do
 		local active = (nid == id)
 		safe(function()
-			b.btn.BackgroundTransparency = active and 0 or 1
-			b.btn.BackgroundColor3 = active and pal.soft or pal.panel
-			b.label.TextColor3 = active and pal.accent or pal.text
+			local lit = active and NAV_HIGHLIGHT
+			b.btn.BackgroundTransparency = lit and 0 or 1
+			b.btn.BackgroundColor3 = pal.soft
+			b.label.TextColor3 = lit and pal.accent or pal.text
+			b.label.Font = (active and not NAV_HIGHLIGHT) and Enum.Font.GothamBold or Enum.Font.Gotham
 		end)
 	end
 	safe(function() scroller.CanvasPosition = Vector2.zero end)
@@ -1428,8 +1454,17 @@ function applyLayout()
 	local pw, ph, nw = calcSizes()
 	PANEL_W, PANEL_H, NAV_W = pw, ph, nw
 
+	-- 计算缩放，并保证缩放后面板不超出屏幕
+	local vp = viewport()
+	local sc = calcUiScale(vp)
+	if pw * sc > vp.X - 12 then sc = (vp.X - 12) / pw end
+	if ph * sc > vp.Y - 12 then sc = math.min(sc, (vp.Y - 12) / ph) end
+	UI_SCALE = sc
+
 	safe(function()
-		panel.Position = UDim2.new(0.5, -pw / 2, 0.5, -ph / 2)
+		panelScale.Scale = sc
+		local w, h = pw * sc, ph * sc
+		panel.Position = UDim2.new(0.5, -w / 2 + PANEL_OFFSET_X, 0.5, -h / 2 + PANEL_OFFSET_Y)
 		panel.Visible = true
 	end)
 
