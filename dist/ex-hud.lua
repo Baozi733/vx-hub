@@ -1,3 +1,14 @@
+--[[
+	EX HUD —— 完全按 ex-hud.html 复刻
+	------------------------------------------------------------------
+	布局：左侧 180 导航 / 右侧滚动区 / 顶部时钟 / 卡片两列网格
+	主题：深色 + 白色（绿色强调色，和 HTML 的 CSS 变量一一对应）
+	功能：主页（边框/按键/主题）、玩家（速度/飞行/跳跃/穿墙/互动）、黑客功能（一键破解）
+	其余导航项按 HTML 走「暂无功能」占位
+	------------------------------------------------------------------
+	快捷键：默认 Insert 开关面板（可在主页改）
+]]
+
 -- ============================================================
 -- 0. 服务与兼容层
 -- ============================================================
@@ -294,7 +305,8 @@ local scroller = mk("ScrollingFrame", {
 	Position = UDim2.fromOffset(NAV_W, 0),
 	BackgroundTransparency = 1,
 	BorderSizePixel = 0,
-	ScrollBarThickness = 4,
+	ScrollBarThickness = 3,
+	VerticalScrollBarInset = Enum.ScrollBarInset.None,
 	CanvasSize = UDim2.new(0, 0, 0, 0),
 	AutomaticCanvasSize = Enum.AutomaticSize.Y,
 	ScrollingDirection = Enum.ScrollingDirection.Y,
@@ -305,7 +317,7 @@ local padding = mk("UIPadding", {
 	PaddingTop = UDim.new(0, 42),
 	PaddingBottom = UDim.new(0, 12),
 	PaddingLeft = UDim.new(0, 12),
-	PaddingRight = UDim.new(0, 12),
+	PaddingRight = UDim.new(0, 20),
 }, scroller)
 
 -- ============================================================
@@ -394,7 +406,7 @@ local curView = "home"
 local function switchOnOff(parent, isOn)
 	local track = mk("Frame", {
 		Size = UDim2.fromOffset(32, 18),
-		Position = UDim2.new(1, -42, 0.5, -9),
+		Position = UDim2.new(1, -38, 0.5, -9),
 		BackgroundColor3 = isOn and pal.accent or pal.track,
 		BorderSizePixel = 0,
 	}, parent)
@@ -432,7 +444,7 @@ local function card(grid, title, desc, isOn, onToggle)
 	reg(cardFrame, "BackgroundColor3", "panel")
 
 	local lbl = mk("TextLabel", {
-		Size = UDim2.new(1, -56, 0, 18),
+		Size = UDim2.new(1, -52, 0, 18),
 		Position = UDim2.fromOffset(10, 8),
 		BackgroundTransparency = 1,
 		Font = Enum.Font.GothamMedium,
@@ -510,8 +522,8 @@ local function sliderCard(grid, title, minVal, maxVal, step, cur, onChanged)
 	reg(lbl, "TextColor3", "text")
 
 	local valLbl = mk("TextLabel", {
-		Size = UDim2.fromOffset(48, 16),
-		Position = UDim2.new(1, -58, 0, 5),
+		Size = UDim2.fromOffset(44, 16),
+		Position = UDim2.new(1, -50, 0, 5),
 		BackgroundTransparency = 1,
 		Font = Enum.Font.Gotham,
 		TextSize = 13,
@@ -687,7 +699,7 @@ local function makeView(id, title, placeholder)
 			BackgroundTransparency = 1,
 		}, body)
 		local lay = mk("UIGridLayout", {
-			CellSize = UDim2.new(0.5, -6, 0, 54),
+			CellSize = UDim2.new(0.5, -8, 0, 54),
 			CellPadding = UDim2.fromOffset(8, 8),
 			SortOrder = Enum.SortOrder.LayoutOrder,
 			FillDirectionMaxCells = 2,
@@ -1514,7 +1526,7 @@ function applyLayout()
 
 	for _, item in ipairs(gridList) do
 		safe(function()
-			item.lay.CellSize = oneCol and UDim2.new(1, 0, 0, cellH) or UDim2.new(0.5, -5, 0, cellH)
+			item.lay.CellSize = oneCol and UDim2.new(1, 0, 0, cellH) or UDim2.new(0.5, -8, 0, cellH)
 			item.lay.FillDirectionMaxCells = oneCol and 1 or 2
 		end)
 	end
