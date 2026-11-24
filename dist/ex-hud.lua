@@ -105,10 +105,6 @@ local state = {
 	-- 玩家
 	speedOn     = true,
 	speed       = 1.0,
-	flySpdOn    = false,
-	flySpd      = 1.0,
-	flyAbsOn    = false,
-	flyAbsSpeed = 80,
 	flySpeedValue = 100,   -- 飞行速度（格/秒），直接生效
 	jumpOn      = true,
 	jump        = 1.0,
@@ -614,150 +610,6 @@ local function card(grid, title, desc, isOn, onToggle)
 	}
 end
 
--- 卡片：标题 + 开关 + 滑块（开关在标题同一行，滑块在下面）
-local function switchSliderCard(grid, title, isOn, onToggle, valueLabel, minVal, maxVal, step, cur, onChanged)
-	local cardFrame = mk("Frame", {
-		Name = "KeySlider",
-		Size = UDim2.new(0.5, -4, 0, 60),
-		BackgroundColor3 = pal.panel,
-		BorderSizePixel = 0,
-	}, grid)
-	mk("UICorner", { CornerRadius = UDim.new(0, 8) }, cardFrame)
-	reg(mk("UIStroke", { Thickness = 1 }, cardFrame), "Color", "line")
-	reg(cardFrame, "BackgroundColor3", "panel")
-
-	-- 标题
-	local lbl = mk("TextLabel", {
-		Size = UDim2.new(1, -(CARD_PAD_RIGHT + SWITCH_W + 22), 0, 16),
-		Position = UDim2.fromOffset(10, 6),
-		BackgroundTransparency = 1,
-		Font = Enum.Font.GothamMedium,
-		TextSize = 13,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		Text = title,
-	}, cardFrame)
-	reg(lbl, "TextColor3", "text")
-
-	-- 开关（标题右侧）
-	local track, knob = switchOnOff(cardFrame, isOn)
-	pcall(function() track.Position = UDim2.new(1, -(CARD_PAD_RIGHT + SWITCH_W), 0, 5) end)
-	reg(track, "BackgroundColor3", isOn and "accent" or "track")
-
-	-- 滑块小标题 + 数值
-	local subLbl = mk("TextLabel", {
-		Size = UDim2.fromOffset(70, 14),
-		Position = UDim2.fromOffset(10, 26),
-		BackgroundTransparency = 1,
-		Font = Enum.Font.Gotham,
-		TextSize = 11,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		Text = valueLabel or "",
-	}, cardFrame)
-	reg(subLbl, "TextColor3", "sub")
-
-	local valLbl = mk("TextLabel", {
-		Size = UDim2.fromOffset(44, 14),
-		Position = UDim2.new(1, -(CARD_PAD_RIGHT + VALUE_W), 0, 26),
-		BackgroundTransparency = 1,
-		Font = Enum.Font.Gotham,
-		TextSize = 11,
-		TextXAlignment = Enum.TextXAlignment.Right,
-		Text = string.format("%.1f", cur),
-	}, cardFrame)
-	reg(valLbl, "TextColor3", "accent")
-
-	-- 轨道
-	local trackBar = mk("Frame", {
-		Size = UDim2.new(1, -20, 0, 4),
-		Position = UDim2.new(0, 10, 0, 44),
-		BackgroundColor3 = pal.track,
-		BorderSizePixel = 0,
-	}, cardFrame)
-	mk("UICorner", { CornerRadius = UDim.new(1, 0) }, trackBar)
-	reg(trackBar, "BackgroundColor3", "track")
-
-	local ratio = (cur - minVal) / (maxVal - minVal)
-	local fill = mk("Frame", {
-		Size = UDim2.new(ratio, 0, 1, 0),
-		BackgroundColor3 = pal.accent,
-		BorderSizePixel = 0,
-	}, trackBar)
-	mk("UICorner", { CornerRadius = UDim.new(1, 0) }, fill)
-	reg(fill, "BackgroundColor3", "accent")
-
-	local knob2 = mk("Frame", {
-		Size = UDim2.fromOffset(12, 12),
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.new(ratio, 0, 0.5, 0),
-		BackgroundColor3 = pal.accent,
-		BorderSizePixel = 0,
-	}, trackBar)
-	mk("UICorner", { CornerRadius = UDim.new(1, 0) }, knob2)
-	reg(knob2, "BackgroundColor3", "accent")
-
-	local dragging = false
-	local function setValue(v)
-		v = math.clamp(v, minVal, maxVal)
-		if step and step > 0 then
-			v = math.floor(v / step + 0.5) * step
-			v = math.clamp(v, minVal, maxVal)
-		end
-		local r = (v - minVal) / (maxVal - minVal)
-		fill.Size = UDim2.new(r, 0, 1, 0)
-		knob2.Position = UDim2.new(r, 0, 0.5, 0)
-		valLbl.Text = string.format("%.1f", v)
-		if onChanged then safe(onChanged, v) end
-		return v
-	end
-	local function fromX(x)
-		local absX = trackBar.AbsolutePosition.X
-		local w = math.max(trackBar.AbsoluteSize.X, 1)
-		setValue(minVal + (maxVal - minVal) * math.clamp((x - absX) / w, 0, 1))
-	end
-	local hit = mk("TextButton", {
-		Size = UDim2.new(1, 0, 0, 20),
-		Position = UDim2.new(0, 0, 0.5, -10),
-		BackgroundTransparency = 1,
-		Text = "",
-	}, trackBar)
-	hit.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1
-			or input.UserInputType == Enum.UserInputType.Touch then
-			dragging = true
-			fromX(input.Position.X)
-		end
-	end)
-	UIS.InputChanged:Connect(function(input)
-		if not dragging then return end
-		if input.UserInputType == Enum.UserInputType.MouseMovement
-			or input.UserInputType == Enum.UserInputType.Touch then
-			fromX(input.Position.X)
-		end
-	end)
-	UIS.InputEnded:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1
-			or input.UserInputType == Enum.UserInputType.Touch then
-			dragging = false
-		end
-	end)
-
-	-- 点开关（不能点到滑块区域）
-	local active = isOn
-	local swBtn = mk("TextButton", {
-		Size = UDim2.new(0, SWITCH_W + 10, 0, 22),
-		Position = UDim2.new(1, -(CARD_PAD_RIGHT + SWITCH_W + 5), 0, 2),
-		BackgroundTransparency = 1,
-		Text = "",
-	}, cardFrame)
-	swBtn.MouseButton1Click:Connect(function()
-		active = not active
-		setSwitch(track, knob, active)
-		if onToggle then safe(onToggle, active) end
-	end)
-
-	return cardFrame, { set = setValue }
-end
-
 -- 卡片：标题 + 滑块（对应 HTML 的 range + number）
 local function sliderCard(grid, title, minVal, maxVal, step, cur, onChanged)
 	local cardFrame = mk("Frame", {
@@ -936,7 +788,7 @@ local function makeView(id, title, placeholder)
 			BackgroundTransparency = 1,
 		}, body)
 		-- 网格容器自己再留 14px 右边距（保证卡片轮廓一定露出来）
-		mk("UIPadding", { PaddingRight = UDim.new(0, 20) }, g)
+		mk("UIPadding", { PaddingRight = UDim.new(0, 14) }, g)
 
 		local lay = mk("UIGridLayout", {
 			CellSize = UDim2.new(0.5, -4, 0, rowH),
@@ -1726,10 +1578,7 @@ local function flyStart()
 			local up = 0
 			if UIS:IsKeyDown(Enum.KeyCode.Space) then up = 1 end
 			if UIS:IsKeyDown(Enum.KeyCode.LeftControl) then up = -1 end
-			-- 飞行速度优先级：倍率 > 绝对值 > 默认数值
 			local spd = state.flySpeedValue or 100
-			if state.flyAbsOn then spd = state.flyAbsSpeed end
-			if state.flySpdOn then spd = 50 * state.flySpd end
 			flyVel.Velocity = (dir + Vector3.new(0, up, 0)) * spd
 			flyGyro.CFrame = cam.CFrame
 		end)
@@ -1981,66 +1830,34 @@ do
 	local v = views.player
 
 	v.section("")
-
-	-- 第 1 排：速度修改 | 速度值
 	local g1 = v.grid()
-	card(g1, "速度修改", "开启移动速度修改", state.speedOn, function(on)
-		state.speedOn = on
-	end)
-	local _, sSpeed = sliderCard(g1, "速度值", 0.1, 10.0, 0.1, state.speed, function(v2)
-		state.speed = v2
-	end)
-
-	-- 第 2~5 排：原来的顺序
-	v.gap(12)
-	local g2 = v.grid()
-	card(g2, "跳跃修改", "开启跳跃高度修改", state.jumpOn, function(on)
+	card(g1, "跳跃修改", "开启跳跃高度修改", state.jumpOn, function(on)
 		state.jumpOn = on
 	end)
-	local _, sJump = sliderCard(g2, "跳跃高度", 0.1, 10.0, 0.1, state.jump, function(v2)
+	local _, sJump = sliderCard(g1, "跳跃高度", 0.1, 10.0, 0.1, state.jump, function(v2)
 		state.jump = v2
 	end)
 
-	card(g2, "无限跳跃", "", state.infJump, function(on)
+	card(g1, "无限跳跃", "", state.infJump, function(on)
 		state.infJump = on
 	end)
-
-	card(g2, "飞行", "", state.fly, function(on)
+	card(g1, "飞行", "", state.fly, function(on)
 		state.fly = on
 		if on then safe(flyStart) else safe(flyStop) end
 	end)
 
-	local _, sFly = sliderCard(g2, "飞行速度(格/秒)", 20, 400, 5, state.flySpeedValue, function(v2)
+	local _, sFly = sliderCard(g1, "飞行速度(格/秒)", 20, 400, 5, state.flySpeedValue, function(v2)
 		state.flySpeedValue = v2
 	end)
-
-	card(g2, "穿墙", "", state.noclip, function(on)
+	card(g1, "穿墙", "", state.noclip, function(on)
 		state.noclip = on
 	end)
 
-	card(g2, "互动", "", state.interactOn, function(on)
+	card(g1, "互动", "", state.interactOn, function(on)
 		state.interactOn = on
 	end)
-
-	local _, sInt = sliderCard(g2, "互动时间(秒)", 0.1, 10.0, 0.1, state.interactSec, function(v2)
+	local _, sInt = sliderCard(g1, "互动时间(秒)", 0.1, 10.0, 0.1, state.interactSec, function(v2)
 		state.interactSec = v2
-	end)
-
-	-- 第 6~7 排：倍率 / 绝对速度（额外保留）
-	v.gap(12)
-	local g3 = v.grid()
-	card(g3, "飞行速度", "独立飞行速度倍率", state.flySpdOn, function(on)
-		state.flySpdOn = on
-	end)
-	local _, sMul = sliderCard(g3, "倍率", 0.1, 15.0, 0.1, state.flySpd, function(v2)
-		state.flySpd = v2
-	end)
-
-	card(g3, "绝对飞行速度", "按数值控制，覆盖倍率", state.flyAbsOn, function(on)
-		state.flyAbsOn = on
-	end)
-	local _, sAbs = sliderCard(g3, "绝对速度值", 10, 400, 5, state.flyAbsSpeed, function(v2)
-		state.flyAbsSpeed = v2
 	end)
 end
 
