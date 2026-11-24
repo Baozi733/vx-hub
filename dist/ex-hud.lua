@@ -788,7 +788,7 @@ local function makeView(id, title, placeholder)
 			BackgroundTransparency = 1,
 		}, body)
 		-- 网格容器自己再留 14px 右边距（保证卡片轮廓一定露出来）
-		mk("UIPadding", { PaddingRight = UDim.new(0, 14) }, g)
+		mk("UIPadding", { PaddingRight = UDim.new(0, 20) }, g)
 
 		local lay = mk("UIGridLayout", {
 			CellSize = UDim2.new(0.5, -4, 0, rowH),
