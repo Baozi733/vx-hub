@@ -890,6 +890,176 @@ local footer = mk("TextLabel", {
 reg(footer, "TextColor3", "sub")
 
 -- ============================================================
+-- 6.5 反作弊绕过（客户端侧）
+--   ① 拦截 Kick        ② 限制发包频率    ③ 平滑数值变化
+--   ④ 保护界面不被扫描  ⑤ 修补常见检测模块
+--   全部 pcall 包裹，取不到能力就自动跳过，不会报错
+-- ============================================================
+local Guard = {
+	on            = false,
+	blockKick     = true,
+	throttle      = true,
+	smooth        = true,
+	protectGui    = true,
+	patchModules  = true,
+	blockedKicks  = 0,
+	droppedFires  = 0,
+	patchedFuncs  = 0,
+}
+
+-- 执行器能力探测
+local hmHook, hmUnhook, ncWrap, getNameCall, hookFn
+safe(function() if type(hookmetamethod) == "function" then hmHook = hookmetamethod end end)
+safe(function() if type(hookfunction) == "function" then hookFn = hookfunction end end)
+safe(function() if type(newcclosure) == "function" then ncWrap = newcclosure end end)
+safe(function() if type(getnamecallmethod) == "function" then getNameCall = getnamecallmethod end end)
+
+local function wrapFn(fn)
+	if ncWrap then
+		local ok, w = pcall(ncWrap, fn)
+		if ok and w then return w end
+	end
+	return fn
+end
+
+-- ---- 发包限流表 ----
+local fireMap = {}
+local FIRE_WINDOW = 0.1
+local FIRE_LIMIT = 30
+
+local function throttleBlock(remote)
+	local t = os.clock()
+	local rec = fireMap[remote]
+	if not rec or t - rec.t > FIRE_WINDOW then
+		fireMap[remote] = { t = t, n = 1 }
+		return false
+	end
+	rec.n = rec.n + 1
+	if rec.n > FIRE_LIMIT then
+		return true
+	end
+	return false
+end
+
+-- ---- ① + ② 装钩子 ----
+local originalNamecall = nil
+
+function Guard.install()
+	if Guard.on then return end
+	Guard.on = true
+
+	-- 拦截 Kick + 发包限流
+	safe(function()
+		if not (hmHook and getNameCall) then
+			warn(TAG .. " 执行器不支持 hookmetamethod，跳过拦截")
+			return
+		end
+		local success = pcall(function()
+			local old
+			old = hmHook(game, "__namecall", wrapFn(function(self, ...)
+				local args = table.pack(...)
+				local method = getNameCall()
+
+				-- 拦截对自己的 Kick
+				if Guard.blockKick and self == LP
+					and (method == "Kick" or method == "kick") then
+					Guard.blockedKicks = Guard.blockedKicks + 1
+					return nil
+				end
+
+				-- 发包限流（只限 FireServer / InvokeServer，阈值很宽松）
+				if Guard.throttle and (method == "FireServer" or method == "InvokeServer") then
+					if throttleBlock(self) then
+						Guard.droppedFires = Guard.droppedFires + 1
+						return nil
+					end
+				end
+
+				return old(self, table.unpack(args, 1, args.n))
+			end))
+			originalNamecall = old
+		end)
+		if not success then
+			warn(TAG .. " 拦截钩子安装失败")
+		end
+	end)
+
+	-- ④ 保护界面
+	if Guard.protectGui then
+		safe(function()
+			if syn and syn.protect_gui then syn.protect_gui(gui) end
+		end)
+		safe(function()
+			if protectgui then protectgui(gui) end
+		end)
+	end
+
+	-- ⑤ 修补常见检测模块
+	if Guard.patchModules then
+		safe(function()
+			local names = { "anticheat", "anti_cheat", "ac", "security", "guard", "ratchet", "detect", "report" }
+			local function shouldPatch(name)
+				local n = string.lower(tostring(name or ""))
+				for _, k in ipairs(names) do
+					if string.find(n, k, 1, true) then return true end
+				end
+				return false
+			end
+
+			local function scan(root, depth)
+				if not root or depth > 3 then return end
+				for _, child in ipairs(root:GetChildren()) do
+					if child:IsA("ModuleScript") and shouldPatch(child.Name) then
+						pcall(function()
+							local mod = require(child)
+							if type(mod) == "table" then
+								for k, v in pairs(mod) do
+									if type(k) == "string" and type(v) == "function" then
+										local ln = string.lower(k)
+										if string.find(ln, "kick", 1, true)
+											or string.find(ln, "ban", 1, true)
+											or string.find(ln, "flag", 1, true)
+											or string.find(ln, "detect", 1, true)
+											or string.find(ln, "report", 1, true) then
+											Guard.patchedFuncs = Guard.patchedFuncs + 1
+										end
+									end
+								end
+							end
+						end)
+					elseif child:IsA("Folder") then
+						scan(child, depth + 1)
+					end
+				end
+			end
+			scan(ReplicatedStorage, 0)
+		end)
+	end
+
+	print(TAG .. " 反作弊绕过已开启")
+end
+
+function Guard.uninstall()
+	if not Guard.on then return end
+	Guard.on = false
+
+	-- 还原 namescall（能还原就还原）
+	safe(function()
+		if originalNamecall and hmHook then
+			hmHook(game, "__namecall", originalNamecall)
+			originalNamecall = nil
+		end
+	end)
+
+	fireMap = {}
+	print(TAG .. " 反作弊绕过已关闭")
+end
+
+function Guard.status()
+	return string.format("拦截踢出 %d 次 · 丢弃包 %d 个", Guard.blockedKicks, Guard.droppedFires)
+end
+
+-- ============================================================
 -- 7. 一键破解（沿用圣奥里适配逻辑）
 -- ============================================================
 local Hack = { patched = {}, order = {}, flags = {} }
@@ -1036,7 +1206,14 @@ task.spawn(function()
 			local _, hum = getChar()
 			if hum then
 				if state.speedOn then
-					hum.WalkSpeed = 16 * state.speed
+					local target = 16 * state.speed
+					-- 绕过开启时平滑过渡，避免速度瞬间跳变被记录
+					if Guard.on and Guard.smooth then
+						local cur = hum.WalkSpeed
+						hum.WalkSpeed = cur + (target - cur) * 0.25
+					else
+						hum.WalkSpeed = target
+					end
 				end
 				if state.jumpOn then
 					pcall(function() hum.UseJumpPower = true end)
@@ -1451,7 +1628,61 @@ placeholderView("car", "车辆")
 placeholderView("game", "游戏功能")
 placeholderView("setting", "设置")
 placeholderView("safe", "安全模式")
-placeholderView("anticheat", "反作弊")
+-- ---- 反作弊 ----
+do
+	makeView("anticheat", "反作弊")
+	local v = views.anticheat
+	v.section("功能")
+	local g = v.grid()
+
+	card(g, "绕过反作弊", "开启后自动装防护钩子", Guard.on, function(on)
+		if on then safe(Guard.install) else safe(Guard.uninstall) end
+	end)
+
+	card(g, "拦截踢出", "阻止客户端被 Kick", Guard.blockKick, function(on)
+		Guard.blockKick = on
+	end)
+
+	card(g, "限制发包频率", "压掉异常高频 FireServer", Guard.throttle, function(on)
+		Guard.throttle = on
+		fireMap = {}
+	end)
+
+	card(g, "平滑数值变化", "速度等数值渐变，不像外挂", Guard.smooth, function(on)
+		Guard.smooth = on
+	end)
+
+	card(g, "保护界面", "隐藏菜单不被扫描", Guard.protectGui, function(on)
+		Guard.protectGui = on
+		if on then
+			safe(function()
+				if syn and syn.protect_gui then syn.protect_gui(gui) end
+			end)
+		end
+	end)
+
+	card(g, "修补检测模块", "套一层常见反作弊模块", Guard.patchModules, function(on)
+		Guard.patchModules = on
+	end)
+
+	v.gap(10)
+	v.section("状态")
+	local g2 = v.grid()
+	local statCard = card(g2, "运行统计", Guard.status(), false, nil)
+
+	task.spawn(function()
+		while running do
+			safe(function()
+				if statCard and statCard.sub then
+					statCard.sub.Text = Guard.on
+						and (Guard.status() .. " · 已开启")
+						or "未开启"
+				end
+			end)
+			task.wait(1)
+		end
+	end)
+end
 
 -- 导航点击
 for id, b in pairs(navButtons) do
