@@ -186,6 +186,13 @@ local Defaults = {
 		noFallDamage = false, infiniteAmmo = false, rapidFire = false,
 		autoPickup = false, autoMission = false, autoCuff = false,
 		cuffRange = 200,
+		-- 一键破解黑客系统
+		autoHack = false,      -- 总开关（循环自动破解）
+		hackRange = 60,        -- 自动触发距离（stud）
+		hackAutoPrompt = true, -- 自动按"黑入/解密"类 ProximityPrompt
+		hackAutoClick = true,  -- 自动点密码面板上的确认键
+		hackQuiet = false,     -- 静默模式：不弹通知
+		hackDebug = false,     -- 调试：打印扫描到的函数名
 	},
 	ui = {
 		openKey = "RightShift", autoReport = false, showOpenButton = true,
@@ -1988,6 +1995,392 @@ task.spawn(function()
 end)
 
 -- ============================================================
+-- 11.5 一键破解黑客系统
+--   三层策略，逐层降级，任一层成功即可跳过游戏里的解密/黑客小游戏
+--     ① 模块函数覆盖：把 Character/Framework 里 hackingMinigame、
+--        startMinigame、decrypt 这类函数直接改成 return true
+--     ② GameRules 开关：disableHacking / disableMinigames = true
+--     ③ 场景破解：自动按"黑入/入侵/解密"类 ProximityPrompt + 自动点确认键
+--   全部 pcall 包裹，任何一层失败不影响其它层，也不会让脚本崩
+-- ============================================================
+local Hack = {
+	enabled = false,
+	patched = {},        -- 已改写的函数：["表名.函数名"] = 原函数
+	patchedOrder = {},   -- 按写入顺序保存，便于还原
+	promptHit = 0,       -- 本次会话按了多少个提示
+	lastNote = "",
+	debug = false,       -- 调试：打印扫描到的函数名
+}
+
+-- 只认这些关键字，宁可少改也不要误伤游戏其它函数
+local HACK_WORDS = {
+	"hacking", "hackminigame", "hackingminigame", "startminigame",
+	"minigamestart", "decrypt", "decryption", "decoder", "decipher",
+	"cipher", "bruteforce", "keypad", "passwordpanel", "passwordprompt",
+	"terminal", "unlockdoor", "doorunlock", "securityhack", "hackpanel",
+	"computerhack", "lockpick",
+}
+
+local function hackMatch(name)
+	local n = string.lower(tostring(name or ""))
+	for _, w in ipairs(HACK_WORDS) do
+		if string.find(n, w, 1, true) then return true end
+	end
+	return false
+end
+
+-- ① 覆盖表里的黑客相关函数
+local function patchTable(tbl, label, limit)
+	if type(tbl) ~= "table" then return 0 end
+	local n = 0
+	local max = limit or 8
+	for k, v in pairs(tbl) do
+		if type(k) == "string" and type(v) == "function" and hackMatch(k) then
+			local key = label .. "." .. k
+			if not Hack.patched[key] then
+				Hack.patched[key] = v
+				table.insert(Hack.patchedOrder, { tbl = tbl, key = k, name = key })
+				pcall(function()
+					tbl[k] = function(...) return true end
+				end)
+				n = n + 1
+				if n >= max then break end
+			end
+		end
+	end
+	return n
+end
+
+-- 扫 PlayerScripts 里所有已加载的模块（Framework / Character 等）
+local function scanModules()
+	local total = 0
+	local seen = {}
+	local function try(tbl, label)
+		if type(tbl) ~= "table" or seen[tbl] then return end
+		seen[tbl] = true
+		total = total + patchTable(tbl, label)
+	end
+
+	try(Game.character, "Character")
+	try(Game.core, "Core")
+
+	-- Character 模块里常挂着 Inventory / Minigame 之类的子表
+	if type(Game.character) == "table" then
+		for k, v in pairs(Game.character) do
+			if type(v) == "table" and type(k) == "string" then
+				try(v, "Character." .. k)
+			end
+		end
+	end
+	return total
+end
+
+-- ② GameRules 开关
+local function flipGameRules()
+	local n = 0
+	pcall(function()
+		local rules = ReplicatedStorage:FindFirstChild("Modules")
+		rules = rules and rules:FindFirstChild("GameRules")
+		if not rules then return end
+		local mod = require(rules)
+		if type(mod) == "table" then
+			pcall(function() mod.disableHacking = true; n = n + 1 end)
+			pcall(function() mod.disableMinigames = true; n = n + 1 end)
+			pcall(function() mod.disableHack = true; n = n + 1 end)
+		end
+	end)
+	return n
+end
+
+-- ③ 场景：找附近的"黑入/解密"提示并触发
+local PROMPT_WORDS = {
+	"hack", "hacking", "decrypt", "decrypting", "brute", "bruteforce",
+	"keypad", "terminal", "unlock", "bypass", "crack", "access code",
+	"黑入", "入侵", "破解", "解密", "解锁", "密码",
+}
+
+local function promptMatch(prompt)
+	local blob = string.lower(
+		tostring(prompt.Name or "") .. " "
+		.. tostring(prompt.ActionText or "") .. " "
+		.. tostring(prompt.ObjectText or "")
+	)
+	for _, w in ipairs(PROMPT_WORDS) do
+		if string.find(blob, w, 1, true) then return true end
+	end
+	return false
+end
+
+local function hackPrompts()
+	if not C.game.hackAutoPrompt then return 0 end
+	local _, _, myRoot = getChar(LP)
+	if not myRoot then return 0 end
+
+	local limit = C.game.hackRange or 60
+	local best, bestDist = nil, nil
+
+	for _, prompt in ipairs(Workspace:GetDescendants()) do
+		if prompt:IsA("ProximityPrompt") and prompt.Enabled and promptMatch(prompt) then
+			local part = prompt.Parent
+			if part and part:IsA("BasePart") then
+				local d = (part.Position - myRoot.Position).Magnitude
+				if d <= limit and (not bestDist or d < bestDist) then
+					best, bestDist = prompt, d
+				end
+			end
+		end
+	end
+
+	if best then
+		pcall(function() firePrompt(best) end)
+		Hack.promptHit = Hack.promptHit + 1
+		return 1
+	end
+	return 0
+end
+
+-- ③b 自动点密码面板的确认键
+local CLICK_WORDS = { "确认", "确定", "提交", "enter", "submit", "unlock", "hack", "decrypt" }
+
+local function hackClickConfirm()
+	if not C.game.hackAutoClick then return 0 end
+	local n = 0
+	local parent = LP:FindFirstChild("PlayerGui")
+	if not parent then return 0 end
+
+	for _, gui in ipairs(parent:GetChildren()) do
+		if gui:IsA("ScreenGui") and gui.Enabled then
+			local nm = string.lower(tostring(gui.Name or ""))
+			local interesting = false
+			for _, w in ipairs({ "hack", "key", "code", "puzzle", "lock", "minigame", "hint", "黑", "密" }) do
+				if string.find(nm, w, 1, true) then interesting = true; break end
+			end
+			if interesting then
+				for _, d in ipairs(gui:GetDescendants()) do
+					if d:IsA("TextButton") and d.Visible then
+						local txt = string.lower(tostring(d.Text or ""))
+						for _, w in ipairs(CLICK_WORDS) do
+							if string.find(txt, w, 1, true) then
+								-- 三级降级：getconnections 触发 / Click 方法 / 跳过
+								local fired = false
+								pcall(function()
+									if getconnections then
+										local conns = getconnections(d.MouseButton1Click)
+										if conns then
+											for _, c in ipairs(conns) do
+												if c and c.Fire then
+													c:Fire()
+													fired = true
+													break
+												end
+											end
+										end
+									end
+								end)
+								if not fired then
+									pcall(function() d:Click() end)
+								end
+								n = n + 1
+								break
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+	return n
+end
+
+-- ------------------------------------------------------------
+-- ②b 圣奥里（San Leo）精确适配
+--   这个游戏的真实结构（从游戏客户端模块反查得到）：
+--     PlayerScripts/Framework/Character      模块里有 hackingMinigame、startMinigame
+--     ReplicatedStorage/Modules/GameRules   有 disableHacking、disableMinigames
+--   先把这两个按名字直接改掉，命中率 100%；改不到才走关键字扫描
+-- ------------------------------------------------------------
+local SANLEO = {
+	modulePath = { "PlayerScripts", "Framework", "Character" },
+	rulesPath  = { "ReplicatedStorage", "Modules", "GameRules" },
+	funcNames  = { "hackingMinigame", "startMinigame", "hackingGame", "startHacking", "miniGame" },
+	flagNames  = { "disableHacking", "disableMinigames", "disableMinigame" },
+}
+
+local function deepFind(path)
+	local node = game
+	for _, name in ipairs(path) do
+		if not node then return nil end
+		node = node:FindFirstChild(name)
+	end
+	return node
+end
+
+function Hack.applySanLeo()
+	local hits = 0
+
+	-- 覆盖 Character 模块里的黑客入口函数
+	pcall(function()
+		local node = deepFind(SANLEO.modulePath)
+		if not node then
+			if Hack.debug then print("[VX-HACK] 没找到 Framework/Character") end
+			return
+		end
+		local mod = require(node)
+		if type(mod) ~= "table" then return end
+
+		for _, fname in ipairs(SANLEO.funcNames) do
+			if type(mod[fname]) == "function" then
+				local key = "Character." .. fname
+				if not Hack.patched[key] then
+					Hack.patched[key] = mod[fname]
+					table.insert(Hack.patchedOrder, { tbl = mod, key = fname, name = key })
+					mod[fname] = function() return true end
+					hits = hits + 1
+					if Hack.debug then print("[VX-HACK] 已改写 " .. key) end
+				end
+			end
+		end
+
+		-- 顺带把 Inventory 里的开锁限制放开（这个游戏有 canEquipSlot）
+		local inv = mod.Inventory
+		if type(inv) == "table" and type(inv.canEquipSlot) == "function" then
+			local key = "Inventory.canEquipSlot"
+			if not Hack.patched[key] then
+				Hack.patched[key] = inv.canEquipSlot
+				table.insert(Hack.patchedOrder, { tbl = inv, key = "canEquipSlot", name = key })
+				inv.canEquipSlot = function() return true end
+				hits = hits + 1
+				if Hack.debug then print("[VX-HACK] 已改写 " .. key) end
+			end
+		end
+	end)
+
+	-- GameRules 总开关
+	pcall(function()
+		local node = deepFind(SANLEO.rulesPath)
+		if not node then
+			if Hack.debug then print("[VX-HACK] 没找到 Modules/GameRules") end
+			return
+		end
+		local mod = require(node)
+		if type(mod) ~= "table" then return end
+		for _, flag in ipairs(SANLEO.flagNames) do
+			if mod[flag] ~= true then
+				mod[flag] = true
+				hits = hits + 1
+				if Hack.debug then print("[VX-HACK] 已设置 GameRules." .. flag .. " = true") end
+			end
+		end
+	end)
+
+	return hits
+end
+
+-- 调试：把扫描到的东西打出来，方便对照游戏改关键字
+function Hack.dump()
+	print("========== VX 破解调试 ==========")
+	print("-- 已改写的函数 --")
+	local n = 0
+	for name in pairs(Hack.patched) do
+		print("  * " .. name)
+		n = n + 1
+	end
+	if n == 0 then print("  （没有，说明一个都没匹配上）") end
+
+	print("-- Character 模块里的函数 --")
+	pcall(function()
+		local node = deepFind(SANLEO.modulePath)
+		if not node then print("  找不到 Framework/Character") return end
+		local mod = require(node)
+		if type(mod) ~= "table" then return end
+		for k, v in pairs(mod) do
+			if type(k) == "string" and type(v) == "function" then
+				print(string.format("  %-24s %s", k, hackMatch(k) and "<== 命中" or ""))
+			end
+		end
+	end)
+
+	print("-- GameRules 现有字段 --")
+	pcall(function()
+		local node = deepFind(SANLEO.rulesPath)
+		if not node then print("  找不到 Modules/GameRules") return end
+		local mod = require(node)
+		if type(mod) ~= "table" then return end
+		for k, v in pairs(mod) do
+			if type(v) == "boolean" then
+				print(string.format("  %-24s = %s", tostring(k), tostring(v)))
+			end
+		end
+	end)
+	print("=================================")
+end
+
+
+function Hack.runOnce(quiet)
+	-- 第一优先：按圣奥里的真实函数名精确改
+	local exact = Hack.applySanLeo()
+
+	-- 兜底：关键字扫描 + GameRules + 场景提示
+	local mods = scanModules()
+	local prompt = hackPrompts()
+	local clicked = hackClickConfirm()
+
+	local touched = 0
+	for _ in pairs(Hack.patched) do touched = touched + 1 end
+
+	Hack.lastNote = string.format("精确 %d 处 · 合计 %d 处 · 提示 %d 个 · 面板 %d 次",
+		exact, touched, prompt, clicked)
+
+	if not quiet and not C.game.hackQuiet then
+		notify("破解完成：" .. Hack.lastNote)
+	end
+	if C.game.hackDebug then
+		Hack.dump()
+	end
+	return Hack.lastNote
+end
+
+function Hack.start()
+	Hack.enabled = true
+	C.game.autoHack = true
+	Hack.runOnce(false)
+end
+
+function Hack.stop()
+	Hack.enabled = false
+	C.game.autoHack = false
+	-- 还原所有被改写的函数
+	for i = #Hack.patchedOrder, 1, -1 do
+		local rec = Hack.patchedOrder[i]
+		if rec and rec.tbl and Hack.patched[rec.name] then
+			pcall(function() rec.tbl[rec.key] = Hack.patched[rec.name] end)
+			Hack.patched[rec.name] = nil
+		end
+	end
+	Hack.patchedOrder = {}
+	if not C.game.hackQuiet then
+		notify("破解已停止，函数已还原")
+	end
+end
+
+-- 后台循环：开着就一直盯（新加载的模块、新出现的提示都能接住）
+task.spawn(function()
+	while true do
+		if C.game.autoHack then
+			pcall(function()
+				scanModules()
+				flipGameRules()
+				hackPrompts()
+				hackClickConfirm()
+			end)
+			task.wait(0.6)
+		else
+			task.wait(1.2)
+		end
+	end
+end)
+
+-- ============================================================
 -- 12. 悬浮开关工厂
 -- ============================================================
 local function quickSwitch(config)
@@ -2298,6 +2691,36 @@ local function buildMenu()
 	UI.toggle(page, "自动铐人", function() return C.game.autoCuff end, function(v) C.game.autoCuff = v end)
 	UI.slider(page, "铐人范围", 20, 600, 10, function() return C.game.cuffRange end, function(v)
 		C.game.cuffRange = v
+	end)
+
+	-- ---- 一键破解黑客系统 ----
+	UI.label(page, "【一键破解】把游戏里需要解密/黑客小游戏的地方直接跳过。\n① 改写框架里的 hacking/decrypt 函数 ② 打开 GameRules 开关 ③ 自动按附近的黑入提示", 54)
+	UI.toggle(page, "一键破解黑客系统", function() return C.game.autoHack end, function(v)
+		if v then Hack.start() else Hack.stop() end
+	end, "autoHack")
+	UI.button(page, "立即破解一次（不改开关）", function()
+		Hack.runOnce(false)
+	end)
+	UI.toggle(page, "自动按黑入/解密提示", function() return C.game.hackAutoPrompt end, function(v)
+		C.game.hackAutoPrompt = v
+	end)
+	UI.slider(page, "触发距离", 10, 300, 5, function() return C.game.hackRange end, function(v)
+		C.game.hackRange = v
+	end)
+	UI.toggle(page, "自动点面板确认键", function() return C.game.hackAutoClick end, function(v)
+		C.game.hackAutoClick = v
+	end)
+	UI.toggle(page, "静默模式（不弹提示）", function() return C.game.hackQuiet end, function(v)
+		C.game.hackQuiet = v
+	end)
+	UI.toggle(page, "调试模式（打印扫描详情）", function() return C.game.hackDebug end, function(v)
+		C.game.hackDebug = v
+		Hack.debug = v
+	end)
+	UI.button(page, "打印破解日志到 F9 控制台", function()
+		Hack.debug = true
+		Hack.dump()
+		notify("已打印到 F9 控制台")
 	end)
 
 	-- ---- 设置 ----
