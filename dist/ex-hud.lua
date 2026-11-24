@@ -788,7 +788,7 @@ local function makeView(id, title, placeholder)
 			BackgroundTransparency = 1,
 		}, body)
 		-- 网格容器自己再留 14px 右边距（保证卡片轮廓一定露出来）
-		mk("UIPadding", { PaddingRight = UDim.new(0, 20) }, g)
+		mk("UIPadding", { PaddingRight = UDim.new(0, 25) }, g)
 
 		local lay = mk("UIGridLayout", {
 			CellSize = UDim2.new(0.5, -4, 0, rowH),
@@ -919,7 +919,6 @@ local brand = mk("TextLabel", {
 }, panel)
 reg(brand, "TextColor3", "accent")
 
-
 -- 顶栏：三个窗口按钮 + 时钟都在这一条，位于「主页」标题上方
 local topbar = mk("Frame", {
 	Name = "TopBar",
@@ -1003,6 +1002,111 @@ safe(function()
 	bMax.ZIndex = 27
 	bClose.ZIndex = 27
 end)
+
+-- ============================================================
+-- 收起后的悬浮图标（点一下恢复面板）
+--   FLOAT_ICON 填 Roblox 图片 ID，例：local FLOAT_ICON = "rbxassetid://1234567890"
+--   留空则显示「EX」兜底徽标
+-- ============================================================
+local FLOAT_ICON = "rbxassetid://109221032399431"   -- EX HUD logo
+
+local floatBtn = mk("TextButton", {
+	Name = "FloatIcon",
+	Size = UDim2.fromScale(1, 1),
+	Position = UDim2.fromOffset(0, 0),
+	BackgroundTransparency = 1,
+	Text = "",
+	Visible = false,
+	ZIndex = 60,
+}, panel)
+
+local floatImg = mk("ImageLabel", {
+	Name = "FloatImg",
+	Size = UDim2.fromScale(1, 1),
+	BackgroundTransparency = 1,
+	ScaleType = Enum.ScaleType.Fit,
+	Image = FLOAT_ICON,
+	Visible = (FLOAT_ICON ~= ""),
+	ZIndex = 61,
+}, floatBtn)
+
+local floatTxt = mk("TextLabel", {
+	Name = "FloatTxt",
+	Size = UDim2.fromScale(1, 1),
+	BackgroundTransparency = 1,
+	Font = Enum.Font.GothamBlack,
+	TextSize = 20,
+	Text = "EX",
+	TextColor3 = Color3.fromRGB(240, 240, 245),
+	Visible = (FLOAT_ICON == ""),
+	ZIndex = 61,
+}, floatBtn)
+
+-- 收起：面板缩成 56x56 只显示图标
+local function setFloating(on)
+	collapsed = on
+	safe(function()
+		if on then
+			panel.Size = UDim2.fromOffset(56, 56)
+			nav.Visible = false
+			scroller.Visible = false
+			if topbar then topbar.Visible = false end
+			if topTitle then topTitle.Visible = false end
+			clock.Visible = false
+			if runLed then runLed.Visible = false end
+			if runTxt then runTxt.Visible = false end
+			brand.Visible = false
+			bMin.Visible = false
+			bMax.Visible = false
+			bClose.Visible = false
+			floatBtn.Visible = true
+			border.Enabled = state.borderOn
+		else
+			floatBtn.Visible = false
+			bMin.Visible = true
+			bMax.Visible = true
+			bClose.Visible = true
+			if runLed then runLed.Visible = true end
+			if runTxt then runTxt.Visible = true end
+			customSize = false
+			applyLayout()
+		end
+	end)
+end
+
+-- 点图标 → 恢复面板
+floatBtn.MouseButton1Click:Connect(function()
+	if collapsed then setFloating(false) end
+end)
+
+-- 图标也能拖动
+do
+	local dragging, startMouse, startPos = false, nil, nil
+	floatBtn.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			startMouse = input.Position
+			startPos = panel.Position
+		end
+	end)
+	UIS.InputChanged:Connect(function(input)
+		if not dragging or not collapsed then return end
+		if input.UserInputType == Enum.UserInputType.MouseMovement
+			or input.UserInputType == Enum.UserInputType.Touch then
+			panel.Position = UDim2.new(
+				startPos.X.Scale, startPos.X.Offset + (input.Position.X - startMouse.X),
+				startPos.Y.Scale, startPos.Y.Offset + (input.Position.Y - startMouse.Y))
+		end
+	end)
+	UIS.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = false
+		end
+	end)
+end
+
 
 -- 侧栏底部
 local footer = mk("TextLabel", {
@@ -1774,41 +1878,10 @@ do
 
 	-- 窗口按钮：− 收成小窗（显示 EX HUD） / □ 放大还原 / × 关闭脚本
 	bMin.MouseButton1Click:Connect(function()
-		collapsed = not collapsed
-		if collapsed then
-			zoomed = false
-			safe(function()
-				panel.Size = UDim2.fromOffset(math.min(PANEL_W, 420), 36)
-				nav.Visible = false
-				scroller.Visible = false
-				clock.Visible = false
-				brand.Visible = false
-				bMin.Text = "+"
-				bMax.Text = "□"
-			end)
-		else
-			safe(function()
-				brand.Visible = false
-				bMin.Text = "−"
-			end)
-			applyLayout()
-		end
+		setFloating(not collapsed)
 	end)
 
 	bMax.MouseButton1Click:Connect(function()
-		if collapsed then
-			-- 收起状态下点放大：直接展开并最大化
-			collapsed = false
-			zoomed = true
-			safe(function()
-				brand.Visible = false
-				bMin.Text = "−"
-				bMax.Text = "▣"
-			end)
-			zoomed = true
-			applyLayout()
-			return
-		end
 		zoomed = not zoomed
 		safe(function() bMax.Text = zoomed and "▣" or "□" end)
 		applyLayout()
@@ -2071,18 +2144,8 @@ function applyLayout()
 		panel.Visible = true
 	end)
 
-	-- 收起状态：只保留小窗 + 牌子 + 按钮，不重排内部
-	if collapsed then
-		safe(function()
-			panel.Size = UDim2.fromOffset(math.min(pw, 420), 36)
-			nav.Visible = false
-			scroller.Visible = false
-			topbar.Visible = false
-			topTitle.Visible = false
-			brand.Visible = false
-		end)
-		return
-	end
+	-- 收起成悬浮图标时不动布局
+	if collapsed then return end
 
 	safe(function()
 		panel.Size = UDim2.fromOffset(pw, ph)
