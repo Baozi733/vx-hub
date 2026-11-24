@@ -821,6 +821,7 @@ local brand = mk("TextLabel", {
 }, panel)
 reg(brand, "TextColor3", "accent")
 
+
 -- 顶栏：三个窗口按钮 + 时钟都在这一条，位于「主页」标题上方
 local topbar = mk("Frame", {
 	Name = "TopBar",
@@ -1327,7 +1328,7 @@ do
 				nav.Visible = false
 				scroller.Visible = false
 				clock.Visible = false
-				brand.Visible = true
+				brand.Visible = false
 				bMin.Text = "+"
 				bMax.Text = "□"
 			end)
@@ -1488,7 +1489,7 @@ function applyLayout()
 			scroller.Visible = false
 			topbar.Visible = false
 			topTitle.Visible = false
-			brand.Visible = true
+			brand.Visible = false
 		end)
 		return
 	end
