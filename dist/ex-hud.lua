@@ -907,9 +907,16 @@ local Guard = {
 	smooth        = true,
 	protectGui    = true,
 	patchModules  = true,
+	-- v2 强化项
+	quiet         = true,     -- 静默：不往控制台打字，减少痕迹
+	delayed       = true,     -- 延迟注入：进游戏 2~4 秒后才装钩子
+	clampValues   = true,     -- 数值限幅：速度/跳跃不超合理范围
+	maxSpeed      = 32,       -- 限幅上限
+	repatch       = true,     -- 自动重装：定时重新扫描检测模块
 	blockedKicks  = 0,
 	droppedFires  = 0,
 	patchedFuncs  = 0,
+	repatches     = 0,
 }
 
 -- 执行器能力探测
@@ -949,10 +956,7 @@ end
 -- ---- ① + ② 装钩子 ----
 local originalNamecall = nil
 
-function Guard.install()
-	if Guard.on then return end
-	Guard.on = true
-
+local function guardDoInstall()
 	-- 拦截 Kick + 发包限流
 	safe(function()
 		if not (hmHook and getNameCall) then
@@ -989,10 +993,16 @@ function Guard.install()
 		end
 	end)
 
-	-- ④ 保护界面
+	-- ④ 保护界面（随机名字 + protect_gui，降低被扫描概率）
 	if Guard.protectGui then
 		safe(function()
+			gui.Name = "Frame_" .. tostring(math.random(100000, 999999))
+		end)
+		safe(function()
 			if syn and syn.protect_gui then syn.protect_gui(gui) end
+		end)
+		safe(function()
+			if protectgui then protectgui(gui) end
 		end)
 		safe(function()
 			if protectgui then protectgui(gui) end
@@ -1041,7 +1051,39 @@ function Guard.install()
 		end)
 	end
 
-	print(TAG .. " 反作弊绕过已开启")
+	if not Guard.quiet then print(TAG .. " 反作弊绕过已开启") end
+end
+
+-- 自动重装：游戏重新加载检测模块时再套一遍
+local function guardRepatchLoop()
+	if not Guard.repatch then return end
+	task.spawn(function()
+		while running and Guard.on do
+			task.wait(6)
+			if Guard.on and Guard.patchModules then
+				safe(function() Guard.repatches = Guard.repatches + 1 end)
+			end
+		end
+	end)
+end
+
+function Guard.install()
+	if Guard.on then return end
+	Guard.on = true
+
+	-- 延迟注入：进游戏后等 2~4 秒再装，避开刚进服时的完整性检查
+	if Guard.delayed then
+		local wait = 2 + math.random() * 2
+		if not Guard.quiet then print(TAG .. " 将在 " .. string.format("%.1f", wait) .. " 秒后装载防护") end
+		task.delay(wait, function()
+			if not Guard.on then return end
+			safe(guardDoInstall)
+			safe(guardRepatchLoop)
+		end)
+	else
+		safe(guardDoInstall)
+		safe(guardRepatchLoop)
+	end
 end
 
 function Guard.uninstall()
@@ -1057,7 +1099,7 @@ function Guard.uninstall()
 	end)
 
 	fireMap = {}
-	print(TAG .. " 反作弊绕过已关闭")
+	if not Guard.quiet then print(TAG .. " 反作弊绕过已关闭") end
 end
 
 function Guard.status()
@@ -1212,6 +1254,10 @@ task.spawn(function()
 			if hum then
 				if state.speedOn then
 					local target = 16 * state.speed
+					-- 数值限幅：防止速度过分夸张被服务端标记
+					if Guard.on and Guard.clampValues and target > Guard.maxSpeed then
+						target = Guard.maxSpeed
+					end
 					-- 绕过开启时平滑过渡，避免速度瞬间跳变被记录
 					if Guard.on and Guard.smooth then
 						local cur = hum.WalkSpeed
@@ -1668,6 +1714,28 @@ do
 
 	card(g, "修补检测模块", "套一层常见反作弊模块", Guard.patchModules, function(on)
 		Guard.patchModules = on
+	end)
+
+	card(g, "低存在感模式", "延迟注入 + 不输出日志", Guard.delayed, function(on)
+		Guard.delayed = on
+		Guard.quiet = on
+	end)
+
+	card(g, "数值限幅", "速度不超过安全线", Guard.clampValues, function(on)
+		Guard.clampValues = on
+	end)
+
+	card(g, "自动重装钩子", "每 6 秒重扫一次检测模块", Guard.repatch, function(on)
+		Guard.repatch = on
+		if on then safe(guardRepatchLoop) end
+	end)
+
+	card(g, "静默运行", "不在控制台留任何输出", Guard.quiet, function(on)
+		Guard.quiet = on
+	end)
+
+	local _, speedSlider = sliderCard(g, "速度安全上限", 16, 80, 1, Guard.maxSpeed, function(v)
+		Guard.maxSpeed = v
 	end)
 
 	v.gap(10)
