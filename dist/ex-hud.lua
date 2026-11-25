@@ -1274,311 +1274,329 @@ reg(footer, "TextColor3", "sub")
 --   ④ 保护界面不被扫描  ⑤ 修补常见检测模块
 --   全部 pcall 包裹，取不到能力就自动跳过，不会报错
 -- ============================================================
-local Guard = {
-	on            = false,
-	blockKick     = true,
-	throttle      = true,
-	smooth        = true,
-	protectGui    = true,
-	patchModules  = true,
-	-- v2 强化项
-	quiet         = true,     -- 静默：不往控制台打字，减少痕迹
-	delayed       = true,     -- 延迟注入：进游戏 2~4 秒后才装钩子
-	clampValues   = true,     -- 数值限幅：速度/跳跃不超合理范围
-	maxSpeed      = 32,       -- 限幅上限
-	repatch       = true,     -- 自动重装：定时重新扫描检测模块
-	blockedKicks  = 0,
-	droppedFires  = 0,
-	patchedFuncs  = 0,
-	repatches     = 0,
+-- ============================================================
+-- 6.7 反作弊对抗（AntiCheatBypass）
+--   目标客户端存在：
+--     ReplicatedStorage.AntiCheat
+--     ReplicatedStorage.Modules.Ratchet / Sha256 / Algorithms
+--     Remote.PlayerEvent / Remote.PlayerFunc
+-- ============================================================
+local AntiCheatBypass = {
+	config = {
+		patchAntiCheat = true,
+		patchRatchet = true,
+		hookNamecall = true,
+		hookIndex = true,
+		selfGuard = true,
+	},
+
+	BLOCKED_EVENTS = {
+		["combatMode"] = true,
+		["takeDamage"] = true,
+		["report"] = true,
+		["reportPlayer"] = true,
+		["antiCheat"] = true,
+		["suspicious"] = true,
+		["screenshot"] = true,
+	},
+	BLOCKED_FUNCS = {
+		["getPlayerInfo"] = true,
+		["checkPlayer"] = true,
+		["getCharacter"] = true,
+		["verify"] = true,
+		["audit"] = true,
+	},
 }
 
--- 执行器能力探测
-local hmHook, hmUnhook, ncWrap, getNameCall, hookFn
-safe(function() if type(hookmetamethod) == "function" then hmHook = hookmetamethod end end)
-safe(function() if type(hookfunction) == "function" then hookFn = hookfunction end end)
-safe(function() if type(newcclosure) == "function" then ncWrap = newcclosure end end)
-safe(function() if type(getnamecallmethod) == "function" then getNameCall = getnamecallmethod end end)
+local AB = AntiCheatBypass
+local O = {}          -- 保存原始函数，供 uninstall 还原
+local errors = {}
+local installed = false
 
-local function wrapFn(fn)
-	if ncWrap then
-		local ok, w = pcall(ncWrap, fn)
-		if ok and w then return w end
-	end
-	return fn
-end
-
--- ---- 发包限流表 ----
-local fireMap = {}
-local FIRE_WINDOW = 0.1
-local FIRE_LIMIT = 30
-
-local function throttleBlock(remote)
-	local t = os.clock()
-	local rec = fireMap[remote]
-	if not rec or t - rec.t > FIRE_WINDOW then
-		fireMap[remote] = { t = t, n = 1 }
+local function need(name, fn)
+	if fn == nil then
+		table.insert(errors, "缺少执行器函数：" .. name)
 		return false
 	end
-	rec.n = rec.n + 1
-	if rec.n > FIRE_LIMIT then
-		return true
+	return true
+end
+
+local function findModule(name)
+	local mods = ReplicatedStorage:FindFirstChild("Modules")
+	local m = mods and mods:FindFirstChild(name)
+	if m then
+		local ok, res = pcall(require, m)
+		if ok then return res end
 	end
-	return false
+	return nil
 end
 
--- ---- ① + ② 装钩子 ----
-local originalNamecall = nil
-
-local function guardDoInstall()
-	-- 拦截 Kick + 发包限流
-	safe(function()
-		if not (hmHook and getNameCall) then
-			warn(TAG .. " 执行器不支持 hookmetamethod，跳过拦截")
-			return
-		end
-		local success = pcall(function()
-			local old
-			old = hmHook(game, "__namecall", wrapFn(function(self, ...)
-				local args = table.pack(...)
-				local method = getNameCall()
-
-				-- 拦截对自己的 Kick
-				if Guard.blockKick and self == LP
-					and (method == "Kick" or method == "kick") then
-					Guard.blockedKicks = Guard.blockedKicks + 1
-					return nil
-				end
-
-				-- 发包限流（只限 FireServer / InvokeServer，阈值很宽松）
-				if Guard.throttle and (method == "FireServer" or method == "InvokeServer") then
-					if throttleBlock(self) then
-						Guard.droppedFires = Guard.droppedFires + 1
-						return nil
-					end
-				end
-
-				return old(self, table.unpack(args, 1, args.n))
-			end))
-			originalNamecall = old
-		end)
-		if not success then
-			warn(TAG .. " 拦截钩子安装失败")
-		end
-	end)
-
-	-- ④ 保护界面（随机名字 + protect_gui，降低被扫描概率）
-	if Guard.protectGui then
-		safe(function()
-			gui.Name = "Frame_" .. tostring(math.random(100000, 999999))
-		end)
-		safe(function()
-			if syn and syn.protect_gui then syn.protect_gui(gui) end
-		end)
-		safe(function()
-			if protectgui then protectgui(gui) end
-		end)
-		safe(function()
-			if protectgui then protectgui(gui) end
-		end)
-	end
-
-	-- ⑤ 修补常见检测模块
-	if Guard.patchModules then
-		safe(function()
-			local names = { "anticheat", "anti_cheat", "ac", "security", "guard", "ratchet", "detect", "report" }
-			local function shouldPatch(name)
-				local n = string.lower(tostring(name or ""))
-				for _, k in ipairs(names) do
-					if string.find(n, k, 1, true) then return true end
-				end
-				return false
-			end
-
-			local function scan(root, depth)
-				if not root or depth > 3 then return end
-				for _, child in ipairs(root:GetChildren()) do
-					if child:IsA("ModuleScript") and shouldPatch(child.Name) then
-						pcall(function()
-							local mod = require(child)
-							if type(mod) == "table" then
-								for k, v in pairs(mod) do
-									if type(k) == "string" and type(v) == "function" then
-										local ln = string.lower(k)
-										if string.find(ln, "kick", 1, true)
-											or string.find(ln, "ban", 1, true)
-											or string.find(ln, "flag", 1, true)
-											or string.find(ln, "detect", 1, true)
-											or string.find(ln, "report", 1, true) then
-											Guard.patchedFuncs = Guard.patchedFuncs + 1
-										end
-									end
-								end
-							end
-						end)
-					elseif child:IsA("Folder") then
-						scan(child, depth + 1)
-					end
-				end
-			end
-			scan(ReplicatedStorage, 0)
-		end)
-	end
-
-	if not Guard.quiet then print(TAG .. " 反作弊绕过已开启") end
-end
-
--- 自动重装：游戏重新加载检测模块时再套一遍
-local function guardRepatchLoop()
-	if not Guard.repatch then return end
-	task.spawn(function()
-		while running and Guard.on do
-			task.wait(6)
-			if Guard.on and Guard.patchModules then
-				safe(function() Guard.repatches = Guard.repatches + 1 end)
-			end
-		end
-	end)
-end
-
-function Guard.install()
-	if Guard.on then return end
-	Guard.on = true
-
-	-- 延迟注入：进游戏后等 2~4 秒再装，避开刚进服时的完整性检查
-	if Guard.delayed then
-		local wait = 2 + math.random() * 2
-		if not Guard.quiet then print(TAG .. " 将在 " .. string.format("%.1f", wait) .. " 秒后装载防护") end
-		task.delay(wait, function()
-			if not Guard.on then return end
-			safe(guardDoInstall)
-			safe(guardRepatchLoop)
-		end)
-	else
-		safe(guardDoInstall)
-		safe(guardRepatchLoop)
-	end
-end
-
-function Guard.uninstall()
-	if not Guard.on then return end
-	Guard.on = false
-
-	-- 还原 namescall（能还原就还原）
-	safe(function()
-		if originalNamecall and hmHook then
-			hmHook(game, "__namecall", originalNamecall)
-			originalNamecall = nil
-		end
-	end)
-
-	fireMap = {}
-	if not Guard.quiet then print(TAG .. " 反作弊绕过已关闭") end
-end
-
--- 扫描反作弊相关模块：把名字像检测器的东西全列出来
-local SCAN_WORDS = {
-	"anticheat", "anti_cheat", "cheat", "security", "guard", "ratchet",
-	"sha", "detect", "report", "kick", "validat", "integrity",
-	"monitor", "sanction", "ban", "protect", "hack",
-}
-
-function Guard.scan()
-	local found = {}
-	local seen = {}
-
-	local function walk(root, label)
-		if not root then return end
-		for _, d in ipairs(root:GetDescendants()) do
-			local n = string.lower(tostring(d.Name or ""))
-			for _, w in ipairs(SCAN_WORDS) do
-				if string.find(n, w, 1, true) then
-					local key = d:GetFullName()
-					if not seen[key] then
-						seen[key] = true
-						table.insert(found, string.format("[%s] %s  (%s)", label, key, d.ClassName))
-					end
-					break
-				end
-			end
-		end
-	end
-
-	safe(function() walk(ReplicatedStorage, "RS") end)
-	safe(function() walk(LP:FindFirstChild("PlayerScripts"), "PS") end)
-	safe(function() walk(LP:FindFirstChild("PlayerGui"), "GUI") end)
-
-	return found
-end
-
--- 圣奥里专属：把该游戏的反作弊模块按名字直接封掉
-function Guard.sanLeo()
+-- ---------- ① 递归 patch AntiCheat 表 ----------
+function AB.patchAntiCheatTable()
 	local hits = 0
-
-	-- ① ReplicatedStorage 里的 Anticheat 表
-	safe(function()
-		local ac = ReplicatedStorage:FindFirstChild("Anticheat", true)
-			or ReplicatedStorage:FindFirstChild("AntiCheat", true)
-			or ReplicatedStorage:FindFirstChild("Anti_Cheat", true)
-		if ac and type(ac) == "table" then
-			for k, v in pairs(ac) do
-				if type(v) == "function" then
-					pcall(function() ac[k] = function() return true end end)
-					hits = hits + 1
+	local function walk(t, depth)
+		if depth > 6 or type(t) ~= "table" then return end
+		for k, v in pairs(t) do
+			if type(v) == "function" then
+				t[k] = function(...)
+					local ok, res = pcall(v, ...)
+					if not ok then return true end
+					return res
 				end
+				hits = hits + 1
+			elseif type(v) == "table" and k ~= "__index" then
+				walk(v, depth + 1)
 			end
 		end
-		if ac and typeof and typeof(ac) == "Instance" then
-			pcall(function()
-				local mod = require(ac)
-				if type(mod) == "table" then
-					for k, v in pairs(mod) do
-						if type(v) == "function" then
-							pcall(function() mod[k] = function() return true end end)
-							hits = hits + 1
-						end
-					end
-				end
-			end)
-		end
-	end)
+	end
 
-	-- ② Ratchet / Sha256 校验模块（这游戏用它做完整性验证）
-	safe(function()
-		local ratchet = ReplicatedStorage:FindFirstChild("Ratchet", true)
-		if ratchet then
-			pcall(function()
-				local mod = require(ratchet)
-				if type(mod) == "table" then
-					if type(mod.catchUp) == "function" then
-						mod.catchUp = function() return true end
-						hits = hits + 1
-					end
-					if type(mod.respond) == "function" then
-						mod.respond = function() return "ok" end
-						hits = hits + 1
-					end
-				end
-			end)
-		end
-	end)
-
-	-- ③ 屏蔽玩家数据查询（防识别）
-	safe(function()
-		local remote = ReplicatedStorage:FindFirstChild("Remote", true)
-		local func = remote and remote:FindFirstChild("PlayerFunc")
-		if func then hits = hits + 1 end
-	end)
-
-	Guard.patchedFuncs = Guard.patchedFuncs + hits
-	if not Guard.quiet then
-		print(TAG .. " 圣奥里强化完成，处理 " .. hits .. " 处")
+	local root = ReplicatedStorage:FindFirstChild("AntiCheat")
+	if root then
+		local ok, t = pcall(require, root)
+		if ok and type(t) == "table" then walk(t, 1) end
 	end
 	return hits
 end
 
+-- ---------- ② patch Ratchet ----------
+function AB.patchRatchet()
+	local ratchet = findModule("Ratchet")
+	local sha = findModule("Sha256")
+	if type(ratchet) ~= "table" then return 0 end
+	if type(sha) ~= "function" then return 0 end
+
+	local mt = getrawmetatable and getrawmetatable(ratchet) or getmetatable(ratchet)
+	if type(mt) ~= "table" then return 0 end
+	if mt.__patched then return 0 end
+
+	local oldIndex = mt.__index
+	if type(oldIndex) == "table" then
+		O.ratchetAdvance = oldIndex.advance
+		oldIndex.catchUp = function(self, target)
+			local n = 0
+			while (self.index or 0) < (target or 0) and n < 5000 do
+				self.index = (self.index or 0) + 1
+				n = n + 1
+			end
+			return true
+		end
+		oldIndex.respond = function(self, challenge)
+			local ok, res = pcall(sha, "resp|" .. tostring(self.state) .. "|" .. tostring(self.index) .. "|" .. tostring(challenge))
+			if ok then return res end
+			return "ok"
+		end
+		mt.__patched = true
+		return 1
+	elseif type(oldIndex) == "function" then
+		O.ratchetIndex = oldIndex
+		local proxy = setmetatable({}, {
+			__index = function(_, k)
+				if k == "catchUp" then
+					return function(self, target)
+						local n = 0
+						while (self.index or 0) < (target or 0) and n < 5000 do
+							self.index = (self.index or 0) + 1
+							n = n + 1
+						end
+						return true
+					end
+				end
+				if k == "respond" then
+					return function(self, challenge)
+						local ok, res = pcall(sha, "resp|" .. tostring(self.state) .. "|" .. tostring(self.index) .. "|" .. tostring(challenge))
+						if ok then return res end
+						return "ok"
+					end
+				end
+				return oldIndex(ratchet, k)
+			end,
+		})
+		mt.__index = function(self, k) return proxy[k] end
+		mt.__patched = true
+		return 1
+	end
+	return 0
+end
+
+-- ---------- ③ hook __namecall ----------
+function AB.hookNamecall()
+	if not need("hookmetamethod", hookmetamethod) then return 0 end
+	if not need("getnamecallmethod", getnamecallmethod) then return 0 end
+
+	O.namecall = hookmetamethod(game, "__namecall", function(self, ...)
+		local packed = table.pack(...)
+		local method = getnamecallmethod()
+
+		if method == "Kick" and self == LP then
+			return nil
+		end
+
+		if method == "FireServer" and type(self) == "userdata" then
+			local nm = self.Name
+			local first = packed[1]
+			if nm == "PlayerEvent" and type(first) == "string" and AB.BLOCKED_EVENTS[first] then
+				return nil
+			end
+		end
+
+		if method == "InvokeServer" and type(self) == "userdata" then
+			local first = packed[1]
+			if self.Name == "PlayerFunc" and type(first) == "string" and AB.BLOCKED_FUNCS[first] then
+				return true
+			end
+		end
+
+		if O.namecall then
+			return O.namecall(self, table.unpack(packed, 1, packed.n))
+		end
+		return self[method](self, table.unpack(packed, 1, packed.n))
+	end)
+	return 1
+end
+
+-- ---------- ④ hook __index（屏蔽 sniff 服务） ----------
+function AB.hookIndex()
+	if not need("hookmetamethod", hookmetamethod) then return 0 end
+	local hide = { InsertService = true, Selection = true, Stats = true }
+	O.index = hookmetamethod(game, "__index", function(self, k)
+		if hide[k] then return nil end
+		if O.index then return O.index(self, k) end
+		return rawget(self, k)
+	end)
+	return 1
+end
+
+-- ---------- ⑥ 自身保护 ----------
+function AB.selfGuard()
+	if not need("clonefunction", clonefunction) then return 0 end
+	O.request = http and http.request or nil
+	O.traceback = debug.traceback
+	O.info = debug.info
+	O.pcall = pcall
+	O.getfenv = getfenv
+	O.tostring = tostring
+
+	local snap = {}
+	local function clone(name, fn)
+		if type(fn) ~= "function" then return end
+		local ok, c = pcall(clonefunction, fn)
+		if ok then snap[name] = c end
+	end
+	clone("request", O.request)
+	clone("traceback", O.traceback)
+	clone("info", O.info)
+	clone("pcall", O.pcall)
+	clone("getfenv", O.getfenv)
+	clone("tostring", O.tostring)
+
+	local baseDepth = 0
+	local okTb, tb = pcall(function() return debug.traceback("", 2) end)
+	if okTb and type(tb) == "string" then
+		for _ in string.gmatch(tb, "\n") do baseDepth = baseDepth + 1 end
+	end
+	O.baseDepth = baseDepth
+	O.snapshot = snap
+
+	-- 检查关键函数是否被替换成 Lua 闭包
+	if iscclosure then
+		for name, fn in pairs({ traceback = debug.traceback, pcall = pcall }) do
+			if type(fn) == "function" and iscclosure(fn) then
+				table.insert(errors, name .. " 已被替换为 Lua 闭包")
+			end
+		end
+	end
+	return 1
+end
+
+-- ---------- init / uninstall ----------
+function AB.init()
+	if installed or (_G.__EXHUD_ACB and _G.__EXHUD_ACB.installed) then
+		return { ok = true, errors = errors, skipped = true }
+	end
+	errors = {}
+
+	-- 顺序硬约束：先克隆原函数 → 再装 hook → 再 patch table
+	local steps = {
+		{ "selfGuard", AB.selfGuard },
+		{ "hookNamecall", AB.hookNamecall },
+		{ "hookIndex", AB.hookIndex },
+		{ "ratchet", AB.patchRatchet },
+		{ "antiCheatTable", AB.patchAntiCheatTable },
+	}
+	for _, st in ipairs(steps) do
+		local ok, res = pcall(st[2])
+		if not ok then
+			table.insert(errors, st[1] .. " 失败：" .. tostring(res))
+		end
+	end
+
+	installed = true
+	_G.__EXHUD_ACB = { installed = true }
+	return { ok = #errors == 0, errors = errors }
+end
+
+function AB.uninstall()
+	safe(function()
+		if O.namecall and hookmetamethod then
+			hookmetamethod(game, "__namecall", O.namecall)
+			O.namecall = nil
+		end
+		if O.index and hookmetamethod then
+			hookmetamethod(game, "__index", O.index)
+			O.index = nil
+		end
+	end)
+	installed = false
+	_G.__EXHUD_ACB = nil
+	return true
+end
+
+function AB.status()
+	if installed then
+		return string.format("已启用 · 失败 %d 步", #errors)
+	end
+	return "未启用"
+end
+
+-- ============================================================
+-- Guard：只保留 UI 需要的开关与扫描（旧绕过逻辑已删除）
+-- ============================================================
+local Guard = {
+	quiet = true,
+	on = false,
+}
+
 function Guard.status()
-	return string.format("拦截踢出 %d 次 · 丢弃包 %d 个", Guard.blockedKicks, Guard.droppedFires)
+	return AB.status()
+end
+
+function Guard.install()
+	return AB.init()
+end
+
+-- ============================================================
+-- 自测断言（模板要求，控制台可验证）
+-- ============================================================
+do
+	local function check(name, cond)
+		if cond then
+			print("[EX HUD] 自测通过：" .. name)
+		else
+			print("[EX HUD] 自测失败：" .. name)
+		end
+	end
+	safe(function()
+		check("模块字段完整", type(AB.init) == "function"
+			and type(AB.uninstall) == "function" and type(AB.config) == "table")
+		check("拦截表已定义", type(AB.BLOCKED_EVENTS) == "table"
+			and AB.BLOCKED_EVENTS["combatMode"] == true
+			and type(AB.BLOCKED_FUNCS) == "table")
+		check("五个能力都在", type(AB.patchAntiCheatTable) == "function"
+			and type(AB.patchRatchet) == "function"
+			and type(AB.hookNamecall) == "function"
+			and type(AB.hookIndex) == "function"
+			and type(AB.selfGuard) == "function")
+	end)
 end
 
 -- ============================================================
@@ -2657,17 +2675,7 @@ task.spawn(function()
 			if hum then
 				if state.speedOn then
 					local target = 16 * state.speed
-					-- 数值限幅：防止速度过分夸张被服务端标记
-					if Guard.on and Guard.clampValues and target > Guard.maxSpeed then
-						target = Guard.maxSpeed
-					end
-					-- 绕过开启时平滑过渡，避免速度瞬间跳变被记录
-					if Guard.on and Guard.smooth then
-						local cur = hum.WalkSpeed
-						hum.WalkSpeed = cur + (target - cur) * 0.25
-					else
-						hum.WalkSpeed = target
-					end
+					hum.WalkSpeed = target
 				end
 				if state.jumpOn then
 					pcall(function() hum.UseJumpPower = true end)
@@ -3334,158 +3342,37 @@ placeholderView("safe", "安全模式")
 do
 	makeView("anticheat", "反作弊")
 	local v = views.anticheat
-	v.section("功能")
+	v.section("反作弊对抗")
 	local g = v.grid()
 
-	card(g, "绕过反作弊", "开启后自动装防护钩子", Guard.on, function(on)
-		if on then safe(Guard.install) else safe(Guard.uninstall) end
-	end)
-
-	card(g, "拦截踢出", "阻止客户端被 Kick", Guard.blockKick, function(on)
-		Guard.blockKick = on
-	end)
-
-	card(g, "限制发包频率", "压掉异常高频 FireServer", Guard.throttle, function(on)
-		Guard.throttle = on
-		fireMap = {}
-	end)
-
-	card(g, "平滑数值变化", "速度等数值渐变，不像外挂", Guard.smooth, function(on)
-		Guard.smooth = on
-	end)
-
-	card(g, "保护界面", "隐藏菜单不被扫描", Guard.protectGui, function(on)
-		Guard.protectGui = on
+	local acCard
+	acCard = card(g, "反作弊绕过", "AntiCheatBypass · 未启用", false, function(on)
 		if on then
-			safe(function()
-				if syn and syn.protect_gui then syn.protect_gui(gui) end
-			end)
-		end
-	end)
-
-	card(g, "修补检测模块", "套一层常见反作弊模块", Guard.patchModules, function(on)
-		Guard.patchModules = on
-	end)
-
-	card(g, "圣奥里强化", "针对该游戏封掉 Anticheat / Ratchet", false, function(on)
-		if on then
-			local n = safe(Guard.sanLeo)
-			if not Guard.quiet then
-				print(TAG .. " 圣奥里强化：" .. tostring(n))
+			-- 总开关：把所有子项都打开
+			AntiCheatBypass.config.patchAntiCheat = true
+			AntiCheatBypass.config.patchRatchet = true
+			AntiCheatBypass.config.hookNamecall = true
+			AntiCheatBypass.config.hookIndex = true
+			AntiCheatBypass.config.selfGuard = true
+			local rep = AntiCheatBypass.init()
+			Guard.on = true
+			if acCard.sub then
+				acCard.sub.Text = "AntiCheatBypass · " .. AntiCheatBypass.status()
 			end
-		end
-	end)
-
-	-- 扫描反作弊模块
-	local scanCard
-	local scanOutput
-	scanCard = card(g, "扫描反作弊模块", "点一下列出检测类模块", false, function(on)
-		if not on then return end
-		local list = Guard.scan() or {}
-		if #list == 0 then
-			scanCard.sub.Text = "没找到（名字不匹配）"
+			if not Guard.quiet and rep then
+				print(TAG .. " 反作弊绕过已启用，失败 " .. tostring(#(rep.errors or {})) .. " 步")
+			end
 		else
-			scanCard.sub.Text = string.format("找到 %d 个，见下方", #list)
-		end
-		if not Guard.quiet then
-			print("===== 反作弊模块扫描 =====")
-			for i, line in ipairs(list) do
-				print(string.format("%2d. %s", i, line))
-			end
-			if #list == 0 then print("（没找到，可能名字不同或不在客户端）") end
-		end
-		safe(function()
-			scanOutput.Visible = true
-			scanOutput.Text = #list == 0
-				and "没找到匹配的模块。\n可能名字不含 anticheat/security/ratchet 等关键字。"
-				or table.concat(list, "\n")
-		end)
-	end)
-
-	scanOutput = mk("TextLabel", {
-		Size = UDim2.new(1, 0, 0, 0),
-		AutomaticSize = Enum.AutomaticSize.Y,
-		BackgroundColor3 = pal.input,
-		BackgroundTransparency = 0.35,
-		BorderSizePixel = 0,
-		Font = Enum.Font.Code,
-		TextSize = 11,
-		TextWrapped = true,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		TextYAlignment = Enum.TextYAlignment.Top,
-		Text = "",
-		Visible = false,
-	}, v.body)
-	reg(scanOutput, "TextColor3", "sub")
-	mk("UIPadding", {
-		PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 6),
-		PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8),
-	}, scanOutput)
-	mk("UICorner", { CornerRadius = UDim.new(0, 6) }, scanOutput)
-
-	-- 列出 ReplicatedStorage 全部子项
-	card(g, "列出 ReplicatedStorage", "显示全部子项，便于对照命名", false, function(on)
-		if not on then return end
-		local lines = {}
-		safe(function()
-			for _, c in ipairs(ReplicatedStorage:GetChildren()) do
-				table.insert(lines, string.format("%s  (%s)", c.Name, c.ClassName))
-			end
-		end)
-		table.sort(lines)
-		safe(function()
-			scanOutput.Visible = true
-			scanOutput.Text = #lines == 0
-				and "ReplicatedStorage 没有子项"
-				or table.concat(lines, "\n")
-		end)
-		if not Guard.quiet then
-			print("===== ReplicatedStorage 子项 (" .. #lines .. ") =====")
-			for i, line in ipairs(lines) do
-				print(string.format("%2d. %s", i, line))
+			AntiCheatBypass.uninstall()
+			Guard.on = false
+			if acCard.sub then
+				acCard.sub.Text = "AntiCheatBypass · 未启用"
 			end
 		end
 	end)
 
-	card(g, "低存在感模式", "延迟注入 + 不输出日志", Guard.delayed, function(on)
-		Guard.delayed = on
-		Guard.quiet = on
-	end)
 
-	card(g, "数值限幅", "速度不超过安全线", Guard.clampValues, function(on)
-		Guard.clampValues = on
-	end)
 
-	card(g, "自动重装钩子", "每 6 秒重扫一次检测模块", Guard.repatch, function(on)
-		Guard.repatch = on
-		if on then safe(guardRepatchLoop) end
-	end)
-
-	card(g, "静默运行", "不在控制台留任何输出", Guard.quiet, function(on)
-		Guard.quiet = on
-	end)
-
-	local _, speedSlider = sliderCard(g, "速度安全上限", 16, 80, 1, Guard.maxSpeed, function(v)
-		Guard.maxSpeed = v
-	end)
-
-	v.gap(10)
-	v.section("状态")
-	local g2 = v.grid()
-	local statCard = card(g2, "运行统计", Guard.status(), false, nil)
-
-	task.spawn(function()
-		while running do
-			safe(function()
-				if statCard and statCard.sub then
-					statCard.sub.Text = Guard.on
-						and (Guard.status() .. " · 已开启")
-						or "未开启"
-				end
-			end)
-			task.wait(1)
-		end
-	end)
 end
 
 -- 导航点击
