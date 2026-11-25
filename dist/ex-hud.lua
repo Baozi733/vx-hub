@@ -204,6 +204,8 @@ local PANEL_OFFSET_Y = 0
 
 
 local running = true      -- 关闭脚本时置 false，所有循环退出
+local started = false     -- 欢迎窗点「打开脚本」后置 true
+local FLOAT_ICON = "rbxassetid://109221032399431"   -- EX HUD logo
 local customSize = false  -- 用户手动拖过大小后，applyLayout 不再覆盖
 local applyLayout          -- 前向声明：窗口按钮要用
 local zoomed = false   -- □ 放大状态（true 时面板铺满屏幕）
@@ -281,6 +283,101 @@ local bezelStroke = mk("UIStroke", { Thickness = 1 }, bezel)
 bezelStroke.Color = Color3.fromRGB(58, 58, 66)
 bezelStroke.Transparency = 0.35
 
+
+-- ============================================================
+-- 启动欢迎窗：点「打开脚本」才显示主面板
+-- ============================================================
+local splash = mk("Frame", {
+	Name = "Splash",
+	Size = UDim2.fromScale(1, 1),
+	BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+	BackgroundTransparency = 0.45,
+	BorderSizePixel = 0,
+	ZIndex = 120,
+}, gui)
+
+local box = mk("Frame", {
+	Name = "SplashBox",
+	Size = UDim2.fromOffset(460, 160),
+	Position = UDim2.fromScale(0.5, 0.5),
+	AnchorPoint = Vector2.new(0.5, 0.5),
+	BackgroundColor3 = Color3.fromRGB(11, 15, 25),
+	BorderSizePixel = 0,
+	ZIndex = 121,
+}, splash)
+mk("UICorner", { CornerRadius = UDim.new(0, 12) }, box)
+local boxStroke = mk("UIStroke", { Thickness = 1 }, box)
+boxStroke.Color = Color3.fromRGB(46, 52, 68)
+
+mk("ImageLabel", {
+	Size = UDim2.fromOffset(26, 26),
+	Position = UDim2.fromOffset(18, 16),
+	BackgroundTransparency = 1,
+	Image = FLOAT_ICON,
+	ScaleType = Enum.ScaleType.Fit,
+	ZIndex = 122,
+}, box)
+
+mk("TextLabel", {
+	Size = UDim2.fromOffset(220, 26),
+	Position = UDim2.fromOffset(54, 16),
+	BackgroundTransparency = 1,
+	Font = Enum.Font.GothamBold,
+	TextSize = 18,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	Text = "EX HUD",
+	TextColor3 = Color3.fromRGB(245, 245, 250),
+	ZIndex = 122,
+}, box)
+
+mk("TextLabel", {
+	Size = UDim2.new(1, -36, 0, 20),
+	Position = UDim2.fromOffset(18, 60),
+	BackgroundTransparency = 1,
+	Font = Enum.Font.Gotham,
+	TextSize = 14,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	Text = "欢迎使用 EX HUD",
+	TextColor3 = Color3.fromRGB(235, 235, 242),
+	ZIndex = 122,
+}, box)
+
+mk("TextLabel", {
+	Size = UDim2.new(1, -36, 0, 20),
+	Position = UDim2.fromOffset(18, 84),
+	BackgroundTransparency = 1,
+	Font = Enum.Font.Gotham,
+	TextSize = 14,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	Text = "尊贵的 " .. LP.Name .. " 用户",
+	TextColor3 = Color3.fromRGB(200, 204, 214),
+	ZIndex = 122,
+}, box)
+
+local openBtn = mk("TextButton", {
+	Size = UDim2.fromOffset(118, 38),
+	Position = UDim2.new(1, -136, 1, -54),
+	BackgroundColor3 = Color3.fromRGB(59, 91, 254),
+	BorderSizePixel = 0,
+	Text = "打开脚本",
+	Font = Enum.Font.GothamBold,
+	TextSize = 14,
+	TextColor3 = Color3.fromRGB(255, 255, 255),
+	ZIndex = 122,
+}, box)
+mk("UICorner", { CornerRadius = UDim.new(0, 6) }, openBtn)
+
+openBtn.MouseButton1Click:Connect(function()
+	started = true
+	safe(function() splash:Destroy() end)
+	safe(function()
+		panel.Visible = started
+		applyLayout()
+	end)
+end)
+
+-- 启动时先隐藏主面板
+safe(function() panel.Visible = false end)
 -- ============================================================
 -- 缩放手柄：右下角 / 左下角拖动即可自由改面板大小
 --   双击手柄 = 恢复默认尺寸
@@ -311,9 +408,6 @@ local function makeGrip(side)
 			ZIndex = 40,
 		}, grip)
 		reg(line, "BackgroundColor3", "sub")
-		if not isRight then
-			line.Position = UDim2.new(0, 4 + (i - 1) * 5, 1, -4 - (i - 1) * 9)
-		end
 	end
 
 	local dragging = false
@@ -390,9 +484,8 @@ local function makeGrip(side)
 	return grip
 end
 
--- 两个把手：右下、左下
+-- 只保留右下角把手（左下角已去掉）
 makeGrip("br")
-makeGrip("bl")
 local border = reg(mk("UIStroke", { Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, panel), "Color", "line")
 border.Transparency = 0.15
 
@@ -405,6 +498,31 @@ local nav = mk("Frame", {
 }, panel)
 mk("UICorner", { CornerRadius = UDim.new(0, 22) }, nav)   -- 跟随面板圆角
 reg(nav, "BackgroundColor3", "panel")
+
+-- 搜索框（导航上方）
+local navSearch = mk("TextBox", {
+	Name = "NavSearch",
+	Size = UDim2.new(1, -16, 0, 26),
+	Position = UDim2.fromOffset(8, 32),
+	BackgroundColor3 = pal.soft,
+	BackgroundTransparency = 0.35,
+	BorderSizePixel = 0,
+	Font = Enum.Font.Gotham,
+	TextSize = 12,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	PlaceholderText = "搜索功能…",
+	PlaceholderColor3 = Color3.fromRGB(140, 140, 150),
+	Text = "",
+	ClearTextOnFocus = false,
+	ZIndex = 3,
+}, nav)
+mk("UICorner", { CornerRadius = UDim.new(0, 6) }, navSearch)
+mk("UIPadding", { PaddingLeft = UDim.new(0, 8) }, navSearch)
+reg(navSearch, "BackgroundColor3", "soft")
+
+-- 全站搜索索引：{ page = "combat", title = "杀戮光环" }
+local SEARCH_INDEX = {}
+local currentViewId = nil
 
 local navLine = mk("Frame", {
 	Size = UDim2.new(0, 1, 1, 0),
@@ -548,6 +666,9 @@ end
 
 -- 卡片：标题 + 描述 + 开关
 local function card(grid, title, desc, isOn, onToggle)
+	if currentViewId and title then
+		table.insert(SEARCH_INDEX, { page = currentViewId, title = title })
+	end
 	local cardFrame = mk("Frame", {
 		Name = "Key",
 		Size = UDim2.new(0.5, -6, 0, 46),
@@ -612,6 +733,9 @@ end
 
 -- 卡片：标题 + 滑块（对应 HTML 的 range + number）
 local function sliderCard(grid, title, minVal, maxVal, step, cur, onChanged)
+	if currentViewId and title then
+		table.insert(SEARCH_INDEX, { page = currentViewId, title = title })
+	end
 	local cardFrame = mk("Frame", {
 		Name = "Slider",
 		Size = UDim2.new(0.5, -6, 0, 46),
@@ -730,6 +854,7 @@ end
 -- 5. 视图容器
 -- ============================================================
 local function makeView(id, title, placeholder)
+	currentViewId = id
 	local view = mk("Frame", {
 		Name = "View_" .. id,
 		Size = UDim2.new(1, 0, 0, 0),
@@ -822,6 +947,13 @@ end
 -- ============================================================
 local NAV_ITEMS = {
 	{ id = "home",      label = "首页",     icon = "⌂" },
+	{ id = "main",      label = "主要",     icon = "主", placeholder = "主要" },
+	{ id = "combat",    label = "战斗",     icon = "战", placeholder = "战斗" },
+	{ id = "aimbot",    label = "自瞄",     icon = "瞄", placeholder = "自瞄" },
+	{ id = "fugitive",  label = "逃犯",     icon = "逃", placeholder = "逃犯" },
+	{ id = "esp",       label = "透视",     icon = "透", placeholder = "透视" },
+	{ id = "tp",        label = "传送",     icon = "传", placeholder = "传送" },
+	{ id = "shop",      label = "商店",     icon = "商", placeholder = "商店" },
 	{ id = "player",    label = "玩家",     icon = "人" },
 	{ id = "car",       label = "车辆",     icon = "车", placeholder = "车辆" },
 	{ id = "game",      label = "游戏功能", icon = "戏", placeholder = "游戏功能" },
@@ -832,6 +964,24 @@ local NAV_ITEMS = {
 	{ id = "setting",   label = "设置",     icon = "设", placeholder = "设置" },
 }
 
+-- 导航滚动容器（项多时可上下滑动）
+local navScroll = mk("ScrollingFrame", {
+	Name = "NavScroll",
+	Size = UDim2.new(1, 0, 1, -60),
+	Position = UDim2.fromOffset(0, 28),
+	BackgroundTransparency = 1,
+	BorderSizePixel = 0,
+	ScrollBarThickness = 3,
+	ScrollBarImageColor3 = pal.line,
+	CanvasSize = UDim2.new(0, 0, 0, 0),
+	AutomaticCanvasSize = Enum.AutomaticSize.Y,
+	ScrollingDirection = Enum.ScrollingDirection.Y,
+	ZIndex = 2,
+}, nav)
+
+navScroll.Position = UDim2.fromOffset(0, 64)
+navScroll.Size = UDim2.new(1, 0, 1, -96)
+
 local navY = 12
 local navList = {}   -- 记录导航项，applyLayout 里统一重排
 for _, item in ipairs(NAV_ITEMS) do
@@ -841,7 +991,7 @@ for _, item in ipairs(NAV_ITEMS) do
 			Position = UDim2.fromOffset(8, navY + 4),
 			BackgroundColor3 = pal.line,
 			BorderSizePixel = 0,
-		}, nav)
+		}, navScroll)
 		table.insert(navList, { divider = dv })
 		navY = navY + 17
 	else
@@ -850,7 +1000,7 @@ for _, item in ipairs(NAV_ITEMS) do
 			Position = UDim2.fromOffset(0, navY),
 			BackgroundTransparency = 1,
 			Text = "",
-		}, nav)
+		}, navScroll)
 
 		-- 只留文字，不带图标
 		local label = mk("TextLabel", {
@@ -980,12 +1130,12 @@ local runTxt = mk("TextLabel", {
 }, topbar)
 reg(runTxt, "TextColor3", "ok")
 
--- 时钟放到侧栏顶部，「EX HUD」右边
+-- 时钟放到顶栏左侧（紧贴侧栏右边）
 safe(function()
-	clock.Parent = panel
-	clock.Size = UDim2.fromOffset(math.max(48, NAV_W - 82), 18)
-	clock.Position = UDim2.fromOffset(74, 5)
-	clock.TextSize = 11
+	clock.Parent = topbar
+	clock.Size = UDim2.fromOffset(86, 18)
+	clock.Position = UDim2.fromOffset(12, 6)
+	clock.TextSize = 12
 	clock.TextXAlignment = Enum.TextXAlignment.Left
 	clock.ZIndex = 27
 end)
@@ -1008,8 +1158,6 @@ end)
 --   FLOAT_ICON 填 Roblox 图片 ID，例：local FLOAT_ICON = "rbxassetid://1234567890"
 --   留空则显示「EX」兜底徽标
 -- ============================================================
-local FLOAT_ICON = "rbxassetid://109221032399431"   -- EX HUD logo
-
 local floatBtn = mk("TextButton", {
 	Name = "FloatIcon",
 	Size = UDim2.fromScale(1, 1),
@@ -1431,6 +1579,934 @@ end
 
 function Guard.status()
 	return string.format("拦截踢出 %d 次 · 丢弃包 %d 个", Guard.blockedKicks, Guard.droppedFires)
+end
+
+-- ============================================================
+-- 6.8 主要功能（圣奥里常用）
+--   所有实现都用 pcall 包着，游戏里找不到对应模块就自动跳过
+-- ============================================================
+local Main = {
+	stamina = false, hunger = false, combatBlock = false, noRagdoll = false,
+	itemGuard = false, noFall = false, antiPull = false,
+	vaultWatch = false, antiFling = false, autoMoney = false,
+	infAmmo = false, rapidFire = false,
+}
+
+-- 取 Framework.Core（体力/饥饿在这个模块里）
+local function coreModule()
+	local mod = nil
+	safe(function()
+		local ps = LP:FindFirstChild("PlayerScripts")
+		local fw = ps and ps:FindFirstChild("Framework")
+		local core = fw and fw:FindFirstChild("Core")
+		if core then mod = require(core) end
+	end)
+	return mod
+end
+
+-- 无限体力 / 无限饥饿
+task.spawn(function()
+	while running do
+		if Main.stamina or Main.hunger then
+			local core = coreModule()
+			if core then
+				if Main.stamina then pcall(function() core.stamina = 100 end) end
+				if Main.hunger then pcall(function() core.food = 100 end) end
+			end
+		end
+		task.wait(0.3)
+	end
+end)
+
+-- 无限子弹
+task.spawn(function()
+	while running do
+		if Main.infAmmo then
+			safe(function()
+				local ch = LP.Character
+				local cfg = ch and ch:FindFirstChild("Config")
+				if cfg then
+					local a = cfg:FindFirstChild("Ammo")
+					local t = cfg:FindFirstChild("TotalAmmo")
+					if a then a.Value = 9999 end
+					if t then t.Value = 9999 end
+				end
+			end)
+		end
+		task.wait(0.4)
+	end
+end)
+
+-- 自动捡钱（自动触发附近的拾取提示）
+task.spawn(function()
+	while running do
+		if Main.autoMoney then
+			safe(function()
+				local _, _, root = getChar()
+				if root then
+					for _, d in ipairs(Workspace:GetDescendants()) do
+						if d:IsA("ProximityPrompt") then
+							local blob = string.lower(tostring(d.Name) .. " " .. tostring(d.ActionText))
+							if string.find(blob, "cash") or string.find(blob, "money")
+								or string.find(blob, "pick") or string.find(blob, "collect") then
+								local part = d.Parent
+								if part and part:IsA("BasePart")
+									and (part.Position - root.Position).Magnitude < 60 then
+									fireProximityPrompt(d)
+								end
+							end
+						end
+					end
+				end
+			end)
+			task.wait(0.8)
+		else
+			task.wait(1)
+		end
+	end
+end)
+
+-- 按搜索词过滤导航项（同时匹配页面里的卡片名）
+local function pageMatches(pageId, query)
+	for _, rec in ipairs(SEARCH_INDEX) do
+		if rec.page == pageId then
+			if string.find(string.lower(rec.title), query, 1, true) then return true end
+		end
+	end
+	return false
+end
+
+local function relayoutNav()
+	local raw = navSearch.Text or ""
+	local query = string.lower(raw)
+	local y = 12
+	local visibleCount = 0
+	for _, rec in ipairs(navList) do
+		local show = true
+		if query ~= "" then
+			if rec.divider then
+				show = false
+			else
+				local lbl = string.lower(rec.item and rec.item.label or "")
+				show = string.find(lbl, query, 1, true) ~= nil
+					or pageMatches(rec.item and rec.item.id, query)
+			end
+		end
+		if rec.divider then
+			rec.divider.Visible = show
+			if show then
+				rec.divider.Position = UDim2.fromOffset(8, y + 4)
+				y = y + 14
+			end
+		else
+			rec.btn.Visible = show
+			if show then
+				visibleCount = visibleCount + 1
+				rec.btn.Position = UDim2.fromOffset(0, y)
+				y = y + (rec.btn.Size.Y.Offset > 0 and rec.btn.Size.Y.Offset or 34)
+			end
+		end
+	end
+	navScroll.CanvasSize = UDim2.new(0, 0, 0, y + 20)
+	-- 只剩一个结果时自动跳过去
+	if query ~= "" and visibleCount == 1 then
+		safe(function()
+			for _, rec in ipairs(navList) do
+				if rec.btn and rec.btn.Visible and rec.item then
+					show(rec.item.id)
+					break
+				end
+			end
+		end)
+	end
+end
+
+navSearch:GetPropertyChangedSignal("Text"):Connect(function()
+	safe(relayoutNav)
+end)
+
+-- 防甩飞（每帧把水平速度压回 0）
+task.spawn(function()
+	while running do
+		if Main.antiFling then
+			safe(function()
+				local _, _, root = getChar()
+				if root then
+					local v = root.AssemblyLinearVelocity
+					if math.abs(v.X) > 60 or math.abs(v.Z) > 60 then
+						root.AssemblyLinearVelocity = Vector3.new(0, v.Y, 0)
+					end
+				end
+			end)
+		end
+		task.wait(0.1)
+	end
+end)
+
+-- 金库刷新提示
+local seenVaults = {}
+task.spawn(function()
+	while running do
+		if Main.vaultWatch then
+			safe(function()
+				for _, d in ipairs(Workspace:GetDescendants()) do
+					if not seenVaults[d] then
+						local n = string.lower(tostring(d.Name))
+						if string.find(n, "vault") or string.find(n, "金库")
+							or string.find(n, "safe") or string.find(n, "robbery") then
+							seenVaults[d] = true
+							if not Guard.quiet then
+								print(TAG .. " 金库刷新：" .. d:GetFullName())
+							end
+						end
+					end
+				end
+			end)
+			task.wait(3)
+		else
+			task.wait(2)
+		end
+	end
+end)
+
+-- 防监狱拉回 / 防布娃娃：改写游戏模块
+local charPivotBackup, ragdollBackup = nil, nil
+
+local function applyMainPatches()
+	-- 防监狱拉回
+	safe(function()
+		local rs = ReplicatedStorage:FindFirstChild("Modules")
+		local alg = rs and rs:FindFirstChild("Algorithms")
+		if alg then
+			local mod = require(alg)
+			if type(mod) == "table" and type(mod.charPivotTo) == "function" then
+				if Main.antiPull then
+					if not charPivotBackup then charPivotBackup = mod.charPivotTo end
+					mod.charPivotTo = function() return nil end
+				elseif charPivotBackup then
+					mod.charPivotTo = charPivotBackup
+					charPivotBackup = nil
+				end
+			end
+		end
+	end)
+
+	-- 防布娃娃
+	safe(function()
+		local rs = ReplicatedStorage:FindFirstChild("Modules")
+		local rag = rs and rs:FindFirstChild("Ragdoll")
+		if rag then
+			local mod = require(rag)
+			if type(mod) == "table" and type(mod.activate) == "function" then
+				if Main.noRagdoll then
+					if not ragdollBackup then ragdollBackup = mod.activate end
+					mod.activate = function() return nil end
+				elseif ragdollBackup then
+					mod.activate = ragdollBackup
+					ragdollBackup = nil
+				end
+			end
+		end
+	end)
+end
+
+-- 战斗拦截 / 防摔伤（需要执行器钩子，没有就跳过）
+local combatHooked = false
+local function applyCombatHooks()
+	if combatHooked then return end
+	safe(function()
+		if type(hookmetamethod) ~= "function" or type(getnamecallmethod) ~= "function" then return end
+		local old
+		old = hookmetamethod(game, "__namecall", function(self, ...)
+			local args = table.pack(...)
+			local method = getnamecallmethod()
+			if method == "FireServer" then
+				local first = args[1]
+				if Main.combatBlock and first == "combatMode" then return nil end
+				if Main.noFall and first == "takeDamage" then return nil end
+			end
+			return old(self, table.unpack(args, 1, args.n))
+		end)
+		combatHooked = true
+	end)
+end
+
+-- 防物品减少：把库存里的扣减函数包一层（找不到就跳过）
+local itemBackup = nil
+local function applyItemGuard()
+	safe(function()
+		local ps = LP:FindFirstChild("PlayerScripts")
+		local fw = ps and ps:FindFirstChild("Framework")
+		local chMod = fw and fw:FindFirstChild("Character")
+		if not chMod then return end
+		local mod = require(chMod)
+		local inv = type(mod) == "table" and mod.Inventory
+		if type(inv) ~= "table" then return end
+		if Main.itemGuard then
+			if not itemBackup then
+				itemBackup = {}
+				for k, v in pairs(inv) do
+					if type(k) == "string" and type(v) == "function" then
+						local kn = string.lower(k)
+						if string.find(kn, "decrease") or string.find(kn, "remove")
+							or string.find(kn, "consume") or string.find(kn, "use") then
+							itemBackup[k] = v
+							inv[k] = function() return true end
+						end
+					end
+				end
+			end
+		elseif itemBackup then
+			for k, v in pairs(itemBackup) do pcall(function() inv[k] = v end) end
+			itemBackup = nil
+		end
+	end)
+end
+
+-- 快速射击（getgc 扫射速字段，需要执行器）
+task.spawn(function()
+	while running do
+		if Main.rapidFire and getgc then
+			safe(function()
+				for _, v in pairs(getgc(true)) do
+					if type(v) == "table" then
+						if rawget(v, "SHOOT_MODE") ~= nil then rawset(v, "SHOOT_MODE", 2) end
+						if rawget(v, "RPM") ~= nil then rawset(v, "RPM", 3000) end
+					end
+				end
+			end)
+		end
+		task.wait(1)
+	end
+end)
+
+-- 显示聊天框
+local function setChat(on)
+	safe(function()
+		game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.Chat, on)
+	end)
+end
+
+-- 导航点传送：沿视线前方传送
+local function teleportForward()
+	local _, _, root = getChar()
+	local cam = Workspace.CurrentCamera
+	if not root or not cam then return end
+	local target = root.Position + cam.CFrame.LookVector * 60 + Vector3.new(0, 3, 0)
+	pcall(function() root.CFrame = CFrame.new(target) end)
+end
+
+-- ============================================================
+-- 6.9 扩展功能：战斗 / 逃犯 / 警察 / 透视 / 传送 / 商店
+-- ============================================================
+-- 事件助手：统一往游戏主 Remote 发消息
+local function mainRemote(kind)
+	local names = kind == "event"
+		and { "PlayerEvent", "MainEvent", "GameEvent" }
+		or { "PlayerFunc", "MainFunction", "GameFunc" }
+	for _, n in ipairs(names) do
+		local r = ReplicatedStorage:FindFirstChild(n)
+		if r and (r:IsA("RemoteEvent") or r:IsA("RemoteFunction")) then return r end
+	end
+	local ev = ReplicatedStorage:FindFirstChild("Events")
+	if ev then
+		for _, n in ipairs(names) do
+			local r = ev:FindFirstChild(n)
+			if r then return r end
+		end
+	end
+	return nil
+end
+
+function fireEvent(name, ...)
+	local args = table.pack(...)
+	safe(function()
+		local re = mainRemote("event")
+		if re and re:IsA("RemoteEvent") then
+			re:FireServer(name, table.unpack(args, 1, args.n))
+		end
+	end)
+end
+
+function invokeFunc(name, ...)
+	local args = table.pack(...)
+	local res = nil
+	safe(function()
+		local rf = mainRemote("func")
+		if rf and rf:IsA("RemoteFunction") then
+			res = rf:InvokeServer(name, table.unpack(args, 1, args.n))
+		end
+	end)
+	return res
+end
+
+local Ext = {
+	-- 战斗
+	aura = false, auraPolice = false, auraCivil = false, auraCombat = false,
+	auraRange = 60, auraMulti = false, auraDelay = 0.12, auraDamage = 3,
+	bulletAim = false, npcAim = false, showFov = false, fovRange = 300,
+	fovDist = 400, fovThick = 2, bulletPart = "Head",
+	-- 逃犯
+	evade = false, evadeRange = 120, evadeTpRange = 60,
+	-- 警察
+	cuff = false, cuffTp = false, globalTp = false, arrest = false, policeCombat = false,
+	-- 透视
+	espOn = false, espName = true, espDist = true, espHp = true,
+	espBox = true, espBone = false,
+	espTeams = {},
+	-- 传送
+	tpTarget = nil, tpDir = "前面", tpDist = 5, tpLoop = false, watching = false, orbit = false,
+	-- 商店
+	shopSel = {}, weaponSel = {},
+}
+
+-- 队伍名单（圣奥里职业）
+local TEAM_KEYS = {
+	{ key = "Fugitive",  label = "逃犯" },
+	{ key = "Chef",      label = "厨师" },
+	{ key = "Civilian",  label = "平民" },
+	{ key = "Delivery",  label = "配送员" },
+	{ key = "Farmer",    label = "农民" },
+	{ key = "Fire",      label = "消防员" },
+	{ key = "Police",    label = "警察" },
+	{ key = "Medical",   label = "医护人员" },
+	{ key = "Prisoner",  label = "囚犯" },
+	{ key = "RoadService", label = "道路服务" },
+	{ key = "Transit",   label = "交通" },
+}
+for _, t in ipairs(TEAM_KEYS) do Ext.espTeams[t.label] = true end
+
+-- 黑市物品 & 武器
+local SHOP_ITEMS = { "解密电路", "撬锁装置", "入侵工具", "C4", "USB", "涂鸦" }
+local WEAPONS = { "MP5", "M4A1" }
+
+-- ---------- 工具 ----------
+local function isPolice(p)
+	return p.Team and p.Team.Name == "Police"
+end
+
+local function isCivilian(p)
+	return p.Team and p.Team.Name == "Civilian"
+end
+
+local function inCombat(p)
+	return p:GetAttribute("CombatMode") == true or p:GetAttribute("Pursuit") == true
+end
+
+local function rootOf(p)
+	local ch = p.Character
+	if not ch then return nil end
+	return ch:FindFirstChild("HumanoidRootPart")
+end
+
+local function myRoot()
+	local ch = LP.Character
+	return ch and ch:FindFirstChild("HumanoidRootPart")
+end
+
+-- 朝目标发送伤害（圣奥里用 PlayerEvent:damage）
+local function hitPlayer(target, partName, factor)
+	local myR = myRoot()
+	local tR = rootOf(target)
+	if not myR or not tR then return end
+	local part = target.Character and target.Character:FindFirstChild(partName or "Head")
+	if not part then return end
+	fireEvent("damage", {
+		bodyParts = { { partName or "Head", 1 } },
+		shotCode = { myR.Position, (part.Position - myR.Position).Unit },
+		pos = part.Position,
+		target = target,
+		damageFactor = factor or 1,
+		bulletProofTool = false,
+	})
+end
+
+-- 找出范围内符合条件的玩家
+local function candidates(range, onlyPolice, onlyCivil, combatOnly)
+	local myR = myRoot()
+	local list = {}
+	if not myR then return list end
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p ~= LP and p.Character then
+			local hum = p.Character:FindFirstChildOfClass("Humanoid")
+			local r = rootOf(p)
+			if hum and hum.Health > 0 and r then
+				local dist = (r.Position - myR.Position).Magnitude
+				local okTeam = true
+				if onlyPolice then okTeam = isPolice(p) end
+				if onlyCivil then okTeam = isCivilian(p) end
+				if combatOnly and not inCombat(p) then okTeam = false end
+				if okTeam and dist <= range then
+					table.insert(list, { p = p, d = dist, r = r })
+				end
+			end
+		end
+	end
+	table.sort(list, function(a, b) return a.d < b.d end)
+	return list
+end
+
+-- ---------- 杀戮光环 ----------
+local auraClock = 0
+task.spawn(function()
+	while running do
+		if Ext.aura then
+			local t = os.clock()
+			if t - auraClock >= Ext.auraDelay then
+				auraClock = t
+				safe(function()
+					local list = candidates(Ext.auraRange, Ext.auraPolice, Ext.auraCivil, Ext.auraCombat)
+					if Ext.auraMulti then
+						for _, c in ipairs(list) do hitPlayer(c.p, Ext.bulletPart, Ext.auraDamage) end
+					elseif list[1] then
+						hitPlayer(list[1].p, Ext.bulletPart, Ext.auraDamage)
+					end
+				end)
+			end
+		end
+		task.wait(0.03)
+	end
+end)
+
+-- ---------- FOV 圈 ----------
+local fovCircle = nil
+safe(function()
+	if Drawing and Drawing.new then
+		fovCircle = Drawing.new("Circle")
+		fovCircle.Filled = false
+		fovCircle.NumSides = 64
+		fovCircle.Visible = false
+	end
+end)
+
+task.spawn(function()
+	while running do
+		safe(function()
+			local cam = Workspace.CurrentCamera
+			if fovCircle and cam then
+				fovCircle.Position = Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
+				fovCircle.Radius = Ext.fovRange
+				fovCircle.Thickness = Ext.fovThick
+				fovCircle.Color = Color3.fromRGB(240, 240, 245)
+				fovCircle.Visible = Ext.showFov and (Ext.aura or Ext.bulletAim)
+			end
+		end)
+		task.wait(0.1)
+	end
+end)
+
+-- ---------- 子弹追敌（改写 Workspace.Raycast） ----------
+local raycastBackup = nil
+local function applyBulletAim()
+	safe(function()
+		if Ext.bulletAim or Ext.npcAim then
+			if raycastBackup == nil and type(hookfunction) == "function" then
+				raycastBackup = Workspace.Raycast
+				hookfunction(Workspace.Raycast, function(self, origin, direction, params)
+					local myR = myRoot()
+					if myR and origin and direction then
+						local best, bestD = nil, Ext.fovDist
+						for _, p in ipairs(Players:GetPlayers()) do
+							if p ~= LP and p.Character then
+								local r = rootOf(p)
+								if r then
+									local d = (r.Position - origin).Magnitude
+									if d <= bestD then best, bestD = r, d end
+								end
+							end
+						end
+						if best then
+							direction = (best.Position - origin).Unit * direction.Magnitude
+						end
+					end
+					return raycastBackup(self, origin, direction, params)
+				end)
+			end
+		else
+			if raycastBackup and type(hookfunction) == "function" then
+				hookfunction(Workspace.Raycast, raycastBackup)
+				raycastBackup = nil
+			end
+		end
+	end)
+end
+
+-- ---------- 逃犯：躲避警察 ----------
+task.spawn(function()
+	while running do
+		if Ext.evade then
+			safe(function()
+				local myR = myRoot()
+				if myR then
+					for _, p in ipairs(Players:GetPlayers()) do
+						if p ~= LP and isPolice(p) then
+							local r = rootOf(p)
+							if r and (r.Position - myR.Position).Magnitude <= Ext.evadeRange then
+								local dir = (myR.Position - r.Position).Unit
+								local target = myR.Position + dir * Ext.evadeTpRange + Vector3.new(0, 3, 0)
+								pcall(function() myR.CFrame = CFrame.new(target) end)
+								break
+							end
+						end
+					end
+				end
+			end)
+			task.wait(0.6)
+		else
+			task.wait(1)
+		end
+	end
+end)
+
+-- ---------- 警察功能 ----------
+task.spawn(function()
+	while running do
+		if Ext.cuff or Ext.arrest or Ext.globalTp then
+			safe(function()
+				local myR = myRoot()
+				if myR then
+					local list = candidates(300, false, true, Ext.policeCombat)
+					for _, c in ipairs(list) do
+						if Ext.cuff then invokeFunc("handcuff", c.p, false) end
+						if Ext.arrest then invokeFunc("arrest", c.p) end
+						if Ext.globalTp and (c.p:GetAttribute("WantedLevel") or 0) > 0 then
+							if Ext.cuffTp or Ext.globalTp then
+								pcall(function()
+									myR.CFrame = CFrame.new(c.r.Position + Vector3.new(0, 0, 3))
+								end)
+							end
+						end
+					end
+				end
+			end)
+			task.wait(0.8)
+		else
+			task.wait(1)
+		end
+	end
+end)
+
+-- ---------- 透视 ----------
+local espCache = {}
+
+local function clearEsp()
+	for _, rec in pairs(espCache) do
+		pcall(function() if rec.bill then rec.bill:Destroy() end end)
+		pcall(function() if rec.hl then rec.hl:Destroy() end end)
+		pcall(function() if rec.box then rec.box:Remove() end end)
+		pcall(function() if rec.bone then for _, l in ipairs(rec.bone) do l:Remove() end end end)
+	end
+	espCache = {}
+end
+
+local function teamOk(p)
+	local name = p.Team and p.Team.Name
+	if not name then return true end
+	for _, t in ipairs(TEAM_KEYS) do
+		if t.key == name then return Ext.espTeams[t.label] ~= false end
+	end
+	return true
+end
+
+local function buildEsp(p)
+	local ch = p.Character
+	local r = ch and ch:FindFirstChild("HumanoidRootPart")
+	if not r then return end
+	local bill = mk("BillboardGui", {
+		Name = "EXESP",
+		AlwaysOnTop = true,
+		Size = UDim2.fromOffset(150, 40),
+		StudsOffset = Vector3.new(0, 3.2, 0),
+		Adornee = r,
+	}, ch)
+	local lbl = mk("TextLabel", {
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		Font = Enum.Font.GothamBold,
+		TextSize = 12,
+		TextStrokeTransparency = 0.3,
+		TextColor3 = Color3.fromRGB(235, 235, 240),
+	}, bill)
+
+	local hl = mk("Highlight", {
+		FillTransparency = 0.75,
+		OutlineTransparency = 0,
+		FillColor = Color3.fromRGB(235, 235, 240),
+		OutlineColor = Color3.fromRGB(235, 235, 240),
+		Adornee = ch,
+	}, ch)
+	pcall(function() hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop end)
+
+	espCache[p] = { bill = bill, lbl = lbl, hl = hl }
+end
+
+task.spawn(function()
+	while running do
+		if Ext.espOn then
+			safe(function()
+				local myR = myRoot()
+				for _, p in ipairs(Players:GetPlayers()) do
+					if p ~= LP and p.Character and teamOk(p) then
+						if not espCache[p] then buildEsp(p) end
+						local rec = espCache[p]
+						if rec then
+							local ch = p.Character
+							local r = ch and ch:FindFirstChild("HumanoidRootPart")
+							local hum = ch and ch:FindFirstChildOfClass("Humanoid")
+							if rec.bill and r then
+								rec.bill.Adornee = r
+								local parts = {}
+								if Ext.espName then table.insert(parts, p.Name) end
+								if Ext.espHp and hum then
+									table.insert(parts, "HP " .. math.floor(hum.Health))
+								end
+								if Ext.espDist and myR and r then
+									table.insert(parts, math.floor((r.Position - myR.Position).Magnitude) .. "m")
+								end
+								rec.lbl.Text = table.concat(parts, "  ")
+								rec.bill.Enabled = true
+							end
+							-- 方块用 Highlight 描边代替（没有 Drawing 也能看）
+							if rec.hl then
+								rec.hl.Enabled = Ext.espBox
+								if ch then rec.hl.Adornee = ch end
+							end
+						end
+					end
+				end
+				-- 清理失效的
+				for p, rec in pairs(espCache) do
+					if not p.Character or not p.Character:FindFirstChild("HumanoidRootPart") then
+						pcall(function() if rec.bill then rec.bill:Destroy() end end)
+						pcall(function() if rec.hl then rec.hl:Destroy() end end)
+						espCache[p] = nil
+					end
+				end
+			end)
+			task.wait(0.4)
+		else
+			if next(espCache) then safe(clearEsp) end
+			task.wait(0.8)
+		end
+	end
+end)
+
+-- ---------- 传送 ----------
+local function dirOffset(p, dirName, dist)
+	local dir = p.CFrame.LookVector
+	if dirName == "后面" then dir = -dir
+	elseif dirName == "左边" then dir = -p.CFrame.RightVector
+	elseif dirName == "右边" then dir = p.CFrame.RightVector end
+	return p.Position + dir * dist + Vector3.new(0, 3, 0)
+end
+
+local function teleportNearTarget()
+	local myR = myRoot()
+	if not myR or not Ext.tpTarget then return end
+	local tr = rootOf(Ext.tpTarget)
+	if not tr then return end
+	local pos = dirOffset(tr, Ext.tpDir, Ext.tpDist)
+	pcall(function() myR.CFrame = CFrame.new(pos) end)
+end
+
+task.spawn(function()
+	local orbitA = 0
+	while running do
+		if Ext.tpLoop then safe(teleportNearTarget) end
+		if Ext.orbit and Ext.tpTarget then
+			safe(function()
+				local myR = myRoot()
+				local tr = rootOf(Ext.tpTarget)
+				if myR and tr then
+					orbitA = orbitA + 0.08
+					local off = Vector3.new(math.cos(orbitA), 0, math.sin(orbitA)) * Ext.tpDist
+					pcall(function() myR.CFrame = CFrame.new(tr.Position + off + Vector3.new(0, 3, 0)) end)
+				end
+			end)
+		end
+		if Ext.watching and Ext.tpTarget then
+			safe(function()
+				local cam = Workspace.CurrentCamera
+				local tr = rootOf(Ext.tpTarget)
+				if cam and tr then
+					cam.CFrame = CFrame.new(tr.Position + Vector3.new(0, 8, 12), tr.Position)
+				end
+			end)
+		end
+		task.wait(0.1)
+	end
+end)
+
+-- 传送到地点（按名字找地图里的部件）
+local function teleportToPlace(keyword)
+	safe(function()
+		local myR = myRoot()
+		if not myR then return end
+		for _, d in ipairs(Workspace:GetDescendants()) do
+			if d:IsA("BasePart") and string.find(string.lower(d.Name), string.lower(keyword)) then
+				pcall(function() myR.CFrame = CFrame.new(d.Position + Vector3.new(0, 3, 0)) end)
+				return
+			end
+		end
+	end)
+end
+
+-- ---------- 商店 ----------
+local function buyItem(name)
+	safe(function()
+		invokeFunc("buyItem", name)
+		invokeFunc("purchase", name)
+		invokeFunc("shopBuy", name)
+	end)
+end
+
+local function equipWeapon(name)
+	safe(function()
+		invokeFunc("equipWeapon", name)
+		invokeFunc("buyWeapon", name)
+	end)
+end
+
+-- ---------- 选择器（单选/多选弹窗） ----------
+local pickerOpen = nil
+
+local function closePicker()
+	if pickerOpen then
+		pcall(function() pickerOpen:Destroy() end)
+		pickerOpen = nil
+	end
+end
+
+local function openPicker(title, options, multi, getSel, onChange)
+	closePicker()
+	local back = mk("TextButton", {
+		Name = "PickerBack",
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+		BackgroundTransparency = 0.5,
+		Text = "",
+		ZIndex = 90,
+	}, panel)
+	local rows = #options
+	local boxH = math.min(320, 56 + rows * 30)
+	local box = mk("Frame", {
+		Size = UDim2.fromOffset(240, boxH),
+		Position = UDim2.new(0.5, 0, 0.5, 0),
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		BackgroundColor3 = pal.panel,
+		BorderSizePixel = 0,
+		ZIndex = 91,
+	}, back)
+	mk("UICorner", { CornerRadius = UDim.new(0, 10) }, box)
+	reg(box, "BackgroundColor3", "panel")
+
+	local t = mk("TextLabel", {
+		Size = UDim2.new(1, -20, 0, 24),
+		Position = UDim2.fromOffset(12, 10),
+		BackgroundTransparency = 1,
+		Font = Enum.Font.GothamBold,
+		TextSize = 13,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Text = title,
+		ZIndex = 92,
+	}, box)
+	reg(t, "TextColor3", "text")
+
+	local list = mk("ScrollingFrame", {
+		Size = UDim2.new(1, -16, 1, -76),
+		Position = UDim2.fromOffset(8, 40),
+		BackgroundTransparency = 1,
+		ScrollBarThickness = 3,
+		CanvasSize = UDim2.new(0, 0, 0, rows * 30),
+		ScrollingDirection = Enum.ScrollingDirection.Y,
+		ZIndex = 92,
+	}, box)
+
+	for i, opt in ipairs(options) do
+		local row = mk("TextButton", {
+			Size = UDim2.new(1, 0, 0, 28),
+			Position = UDim2.fromOffset(0, (i - 1) * 30),
+			BackgroundColor3 = pal.soft,
+			BackgroundTransparency = 0.6,
+			Text = "",
+			ZIndex = 93,
+		}, list)
+		mk("UICorner", { CornerRadius = UDim.new(0, 6) }, row)
+		reg(row, "BackgroundColor3", "soft")
+
+		local lb = mk("TextLabel", {
+			Size = UDim2.new(1, -34, 1, 0),
+			Position = UDim2.fromOffset(10, 0),
+			BackgroundTransparency = 1,
+			Font = Enum.Font.Gotham,
+			TextSize = 12,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			Text = opt,
+			ZIndex = 94,
+		}, row)
+		reg(lb, "TextColor3", "text")
+
+		local tick = mk("TextLabel", {
+			Size = UDim2.fromOffset(22, 28),
+			Position = UDim2.new(1, -26, 0, 0),
+			BackgroundTransparency = 1,
+			Font = Enum.Font.GothamBold,
+			TextSize = 13,
+			Text = "",
+			ZIndex = 94,
+		}, row)
+		reg(tick, "TextColor3", "accent")
+
+		local function refresh()
+			local sel = getSel()
+			local on
+			if multi then on = sel[opt] ~= false
+			else on = (sel == opt) end
+			tick.Text = on and "✓" or ""
+		end
+		refresh()
+
+		row.MouseButton1Click:Connect(function()
+			if multi then
+				local sel = getSel()
+				sel[opt] = (sel[opt] == false)
+				refresh()
+				if onChange then safe(onChange) end
+			else
+				if onChange then safe(onChange, opt) end
+				closePicker()
+			end
+		end)
+	end
+
+	local done = mk("TextButton", {
+		Size = UDim2.new(1, -24, 0, 26),
+		Position = UDim2.new(0, 12, 1, -34),
+		BackgroundColor3 = pal.accent,
+		Text = "完成",
+		Font = Enum.Font.GothamBold,
+		TextSize = 12,
+		TextColor3 = pal.bg,
+		ZIndex = 93,
+	}, box)
+	mk("UICorner", { CornerRadius = UDim.new(0, 6) }, done)
+	reg(done, "BackgroundColor3", "accent")
+	reg(done, "TextColor3", "bg")
+	done.MouseButton1Click:Connect(closePicker)
+	back.MouseButton1Click:Connect(function() end)
+
+	pickerOpen = back
+	return back
+end
+
+-- 带选择器的卡片（点卡片打开弹窗）
+local function pickerCard(grid, title, desc, options, multi, getSel, onChange)
+	local cn, api = card(grid, title, desc, false, function()
+		safe(function()
+			openPicker(title, options, multi, getSel, onChange)
+		end)
+	end)
+	return cn, api
 end
 
 -- ============================================================
@@ -1956,8 +3032,302 @@ local function placeholderView(id, title)
 	card(g, "暂无功能", "该模块暂未开放", false, nil)
 end
 
+-- ---- 主要 ----
+do
+	makeView("main", "主要")
+	local v = views.main
+	v.section("基础")
+	local g = v.grid()
+
+	card(g, "无限体力", "体力锁在 100", Main.stamina, function(on)
+		Main.stamina = on
+	end)
+	card(g, "无限饥饿", "饥饿锁在 100", Main.hunger, function(on)
+		Main.hunger = on
+	end)
+	card(g, "战斗拦截", "屏蔽战斗状态上报", Main.combatBlock, function(on)
+		Main.combatBlock = on
+		if on then safe(applyCombatHooks) end
+	end)
+	card(g, "防布娃娃", "不进入布娃娃状态", Main.noRagdoll, function(on)
+		Main.noRagdoll = on
+		safe(applyMainPatches)
+	end)
+	card(g, "防摔伤", "屏蔽摔落伤害", Main.noFall, function(on)
+		Main.noFall = on
+		if on then safe(applyCombatHooks) end
+	end)
+	card(g, "防监狱拉回", "阻止被拉回监狱", Main.antiPull, function(on)
+		Main.antiPull = on
+		safe(applyMainPatches)
+	end)
+	card(g, "防物品减少", "库存不被扣减", Main.itemGuard, function(on)
+		Main.itemGuard = on
+		safe(applyItemGuard)
+	end)
+	card(g, "防甩飞", "异常速度自动归零", Main.antiFling, function(on)
+		Main.antiFling = on
+	end)
+	card(g, "无限子弹", "弹药锁定 9999", Main.infAmmo, function(on)
+		Main.infAmmo = on
+	end)
+	card(g, "快速射击", "射速拉到最高", Main.rapidFire, function(on)
+		Main.rapidFire = on
+	end)
+	card(g, "自动捡钱", "自动拾取附近现金", Main.autoMoney, function(on)
+		Main.autoMoney = on
+	end)
+	card(g, "金库刷新提示", "新目标出现时打印", Main.vaultWatch, function(on)
+		Main.vaultWatch = on
+	end)
+	card(g, "显示聊天框", "强制开启聊天", true, function(on)
+		setChat(on)
+	end)
+
+	v.gap(10)
+	v.section("操作")
+	local g2 = v.grid()
+	card(g2, "导航点传送", "点一下向前传送 60 格", false, function()
+		safe(teleportForward)
+	end)
+end
+
+
+-- ---- 战斗 ----
+do
+	makeView("combat", "战斗")
+	local v = views.combat
+	v.section("杀戮光环")
+	local g = v.grid()
+
+	card(g, "杀戮光环", "范围自动攻击", Ext.aura, function(on)
+		Ext.aura = on
+	end)
+	card(g, "只攻击警察", "只打警察", Ext.auraPolice, function(on)
+		Ext.auraPolice = on
+		if on then Ext.auraCivil = false end
+	end)
+	card(g, "只攻击平民", "只打平民", Ext.auraCivil, function(on)
+		Ext.auraCivil = on
+		if on then Ext.auraPolice = false end
+	end)
+	card(g, "战斗检测", "只打战斗状态目标", Ext.auraCombat, function(on)
+		Ext.auraCombat = on
+	end)
+	local _, aR = sliderCard(g, "攻击范围", 20, 400, 5, Ext.auraRange, function(v2)
+		Ext.auraRange = v2
+	end)
+	card(g, "多目标攻击", "同时打多个目标", Ext.auraMulti, function(on)
+		Ext.auraMulti = on
+	end)
+	local _, aD = sliderCard(g, "伤害倍数", 1, 30, 1, Ext.auraDamage, function(v2)
+		Ext.auraDamage = v2
+	end)
+
+	v.gap(10)
+	v.section("子弹")
+	local g2 = v.grid()
+	card(g2, "子弹追敌", "子弹自动瞄准", Ext.bulletAim, function(on)
+		Ext.bulletAim = on
+		safe(applyBulletAim)
+	end)
+	card(g2, "NPC追敌", "连同 NPC 一起瞄", Ext.npcAim, function(on)
+		Ext.npcAim = on
+		safe(applyBulletAim)
+	end)
+	card(g2, "显示FOV圈", "屏幕上画准心圈", Ext.showFov, function(on)
+		Ext.showFov = on
+	end)
+	local _, fR = sliderCard(g2, "FOV范围", 50, 600, 10, Ext.fovRange, function(v2)
+		Ext.fovRange = v2
+	end)
+	local _, fT = sliderCard(g2, "FOV圈厚度", 1, 6, 1, Ext.fovThick, function(v2)
+		Ext.fovThick = v2
+	end)
+	local _, fD = sliderCard(g2, "子弹追敌距离", 50, 1000, 25, Ext.fovDist, function(v2)
+		Ext.fovDist = v2
+	end)
+	pickerCard(g2, "子弹部位", "选头部或身体", { "Head", "Torso" }, false,
+		function() return Ext.bulletPart end,
+		function(opt) Ext.bulletPart = opt end)
+end
+
+
+placeholderView("aimbot", "自瞄")
+-- ---- 逃犯 ----
+do
+	makeView("fugitive", "逃犯")
+	local v = views.fugitive
+	v.section("躲避")
+	local g = v.grid()
+
+	card(g, "躲避警察", "警察靠近自动闪走", Ext.evade, function(on)
+		Ext.evade = on
+	end)
+	local _, eR = sliderCard(g, "检测范围", 30, 400, 10, Ext.evadeRange, function(v2)
+		Ext.evadeRange = v2
+	end)
+	local _, eT = sliderCard(g, "传送范围", 20, 300, 10, Ext.evadeTpRange, function(v2)
+		Ext.evadeTpRange = v2
+	end)
+end
+
+
+-- ---- 透视 ----
+do
+	makeView("esp", "透视")
+	local v = views.esp
+	v.section("显示")
+	local g = v.grid()
+
+	card(g, "透视总开关", "开启后下面各项生效", Ext.espOn, function(on)
+		Ext.espOn = on
+	end)
+	card(g, "显示名字", "", Ext.espName, function(on) Ext.espName = on end)
+	card(g, "显示距离", "", Ext.espDist, function(on) Ext.espDist = on end)
+	card(g, "显示血量", "", Ext.espHp, function(on) Ext.espHp = on end)
+	card(g, "显示方块", "", Ext.espBox, function(on) Ext.espBox = on end)
+	card(g, "显示骨骼", "", Ext.espBone, function(on) Ext.espBone = on end)
+
+	local teamNames = {}
+	for _, t in ipairs(TEAM_KEYS) do table.insert(teamNames, t.label) end
+	local keyByLabel = {}
+	for _, t in ipairs(TEAM_KEYS) do keyByLabel[t.label] = t.key end
+
+	pickerCard(g, "透视队伍", "可选多个职业", teamNames, true,
+		function() return Ext.espTeams end,
+		function() end)
+end
+
+
+-- ---- 传送 ----
+do
+	makeView("tp", "传送")
+	local v = views.tp
+	v.section("玩家传送")
+	local g = v.grid()
+
+	local playerNames = {}
+	local function refreshNames()
+		playerNames = {}
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p ~= LP then table.insert(playerNames, p.Name) end
+		end
+	end
+	refreshNames()
+
+	pickerCard(g, "选择玩家", "点一下刷新列表", {}, false,
+		function() return Ext.tpTarget and Ext.tpTarget.Name or "" end,
+		function(name)
+			Ext.tpTarget = Players:FindFirstChild(name)
+		end)
+
+	card(g, "刷新玩家列表", "重新读取在线玩家", false, function()
+		refreshNames()
+		safe(function()
+			openPicker("选择玩家", playerNames, false,
+				function() return Ext.tpTarget and Ext.tpTarget.Name or "" end,
+				function(name) Ext.tpTarget = Players:FindFirstChild(name) end)
+		end)
+	end)
+
+	pickerCard(g, "传送方向", "相对目标的位置", { "前面", "后面", "左边", "右边" }, false,
+		function() return Ext.tpDir end,
+		function(opt) Ext.tpDir = opt end)
+
+	local _, dS = sliderCard(g, "传送距离", 1, 50, 1, Ext.tpDist, function(v2)
+		Ext.tpDist = v2
+	end)
+
+	card(g, "持续传送", "每帧贴住目标", Ext.tpLoop, function(on)
+		Ext.tpLoop = on
+		if on then safe(teleportNearTarget) end
+	end)
+	card(g, "查看选定玩家", "镜头锁定目标", Ext.watching, function(on)
+		Ext.watching = on
+	end)
+	card(g, "环绕玩家", "围着目标转圈", Ext.orbit, function(on)
+		Ext.orbit = on
+	end)
+
+	v.gap(10)
+	v.section("地点传送")
+	local g2 = v.grid()
+	card(g2, "警察局", "传送到警察局", false, function()
+		safe(function() teleportToPlace("policestation") end)
+		safe(function() teleportToPlace("警察局") end)
+	end)
+	card(g2, "医院", "传送到医院", false, function()
+		safe(function() teleportToPlace("hospital") end)
+		safe(function() teleportToPlace("医院") end)
+	end)
+end
+
+
+-- ---- 商店 ----
+do
+	makeView("shop", "商店")
+	local v = views.shop
+	v.section("黑市物品")
+	local g = v.grid()
+
+	for _, name in ipairs(SHOP_ITEMS) do
+		Ext.shopSel[name] = true
+	end
+	pickerCard(g, "黑市物品", "可多选，点卡片展开", SHOP_ITEMS, true,
+		function() return Ext.shopSel end,
+		function() end)
+
+	card(g, "购买选中物品", "按勾选逐个购买", false, function()
+		for _, name in ipairs(SHOP_ITEMS) do
+			if Ext.shopSel[name] ~= false then buyItem(name) end
+		end
+	end)
+
+	v.gap(10)
+	v.section("武器")
+	local g2 = v.grid()
+	for _, name in ipairs(WEAPONS) do
+		Ext.weaponSel[name] = true
+	end
+	pickerCard(g2, "选择武器", "MP5 / M4A1 可多选", WEAPONS, true,
+		function() return Ext.weaponSel end,
+		function() end)
+
+	card(g2, "购买选中武器", "按勾选逐个购买", false, function()
+		for _, name in ipairs(WEAPONS) do
+			if Ext.weaponSel[name] ~= false then equipWeapon(name) end
+		end
+	end)
+end
+
+
 placeholderView("car", "车辆")
-placeholderView("game", "游戏功能")
+-- ---- 游戏功能（警察功能） ----
+do
+	makeView("game", "游戏功能")
+	local v = views.game
+	v.section("警察功能")
+	local g = v.grid()
+
+	card(g, "自动手铐", "靠近嫌疑人自动上铐", Ext.cuff, function(on)
+		Ext.cuff = on
+	end)
+	card(g, "自动传送", "逮捕后自动跟过去", Ext.cuffTp, function(on)
+		Ext.cuffTp = on
+	end)
+	card(g, "全图传送", "传送到通缉目标身边", Ext.globalTp, function(on)
+		Ext.globalTp = on
+	end)
+	card(g, "自动逮捕", "目标倒地自动逮捕", Ext.arrest, function(on)
+		Ext.arrest = on
+	end)
+	card(g, "战斗检测", "只处理战斗状态目标", Ext.policeCombat, function(on)
+		Ext.policeCombat = on
+	end)
+end
+
+
 placeholderView("setting", "设置")
 placeholderView("safe", "安全模式")
 -- ---- 反作弊 ----
@@ -2141,7 +3511,7 @@ function applyLayout()
 	safe(function()
 		if panelScale then panelScale.Scale = 1 end
 		panel.Position = UDim2.new(0.5, -pw / 2 + PANEL_OFFSET_X, 0.5, -ph / 2 + PANEL_OFFSET_Y)
-		panel.Visible = true
+		panel.Visible = started
 	end)
 
 	-- 收起成悬浮图标时不动布局
@@ -2151,6 +3521,15 @@ function applyLayout()
 		panel.Size = UDim2.fromOffset(pw, ph)
 		nav.Visible = true
 		nav.Size = UDim2.fromOffset(nw, ph)
+		if navScroll then
+			navScroll.Size = UDim2.new(1, 0, 1, -96)
+			navScroll.Position = UDim2.fromOffset(0, 64)
+		end
+		if navSearch then
+			navSearch.Size = UDim2.new(1, -16, 0, 26)
+			navSearch.Position = UDim2.fromOffset(8, 32)
+		end
+		if relayoutNav then safe(relayoutNav) end
 	end)
 	safe(function()
 		scroller.Visible = true
@@ -2162,10 +3541,9 @@ function applyLayout()
 		topbar.Size = UDim2.new(1, -nw, 0, 30)
 		topbar.Position = UDim2.fromOffset(nw, 0)
 		clock.Visible = true
-		-- 紧挨 EX HUD 右边
-		clock.Position = UDim2.fromOffset(74, 5)
-		clock.Size = UDim2.fromOffset(math.max(46, nw - 80), 18)
-		clock.TextSize = (nw < 130) and 10 or 11
+		-- 顶栏左侧（侧栏右边那块）
+		clock.Position = UDim2.fromOffset(12, 6)
+		clock.Size = UDim2.fromOffset(86, 18)
 		topTitle.Size = UDim2.fromOffset(math.max(50, nw - 16), 28)
 		topTitle.Visible = true
 		brand.Visible = false
@@ -2254,7 +3632,7 @@ function applyLayout()
 	end
 
 	safe(function()
-		clock.TextSize = (nw < 130) and 10 or 11
+		clock.TextSize = 12
 		-- 按钮占位 92px，状态文字放它左边
 		if runLed and runTxt then
 			runLed.Position = UDim2.new(1, -168, 0, 11)
