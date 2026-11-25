@@ -64,12 +64,12 @@ local function fireProximityPrompt(prompt)
 end
 
 -- ============================================================
--- 1. 主题色板（数值直接取自 HTML 的 CSS 变量）
+-- 1. 主题色板
 -- ============================================================
 local Themes = {
 	dark = {
-		bg      = Color3.fromRGB(15, 15, 18),    -- #0f0f12
-		panel   = Color3.fromRGB(24, 24, 27),    -- #18181b
+		bg      = Color3.fromRGB(6, 6, 8),       -- 接近纯黑
+		panel   = Color3.fromRGB(22, 22, 25),    -- 卡片底色
 		line    = Color3.fromRGB(39, 39, 42),    -- #27272a
 		text    = Color3.fromRGB(238, 238, 238), -- #eee
 		sub     = Color3.fromRGB(136, 136, 136), -- #888
@@ -80,18 +80,19 @@ local Themes = {
 		knob    = Color3.fromRGB(255, 255, 255),
 		ok      = Color3.fromRGB(34, 197, 94),   -- 运行状态绿（只给状态点用）
 	},
-	light = {
-		bg      = Color3.fromRGB(244, 244, 245), -- #f4f4f5
-		panel   = Color3.fromRGB(255, 255, 255), -- #ffffff
-		line    = Color3.fromRGB(228, 228, 231), -- #e4e4e7
-		text    = Color3.fromRGB(24, 24, 27),    -- #18181b
-		sub     = Color3.fromRGB(113, 113, 122), -- #71717a
-		accent  = Color3.fromRGB(24, 24, 27),    -- #18181b（浅色主题用黑）
-		soft    = Color3.fromRGB(228, 228, 231), -- 选中底色改中性灰
-		track   = Color3.fromRGB(212, 212, 216), -- #d4d4d8
-		input   = Color3.fromRGB(244, 244, 245), -- #f4f4f5
+	-- 纯白主题：白底黑字
+	white = {
+		bg      = Color3.fromRGB(255, 255, 255),
+		panel   = Color3.fromRGB(255, 255, 255),
+		line    = Color3.fromRGB(224, 224, 228),
+		text    = Color3.fromRGB(0, 0, 0),
+		sub     = Color3.fromRGB(88, 88, 96),
+		accent  = Color3.fromRGB(10, 10, 10),
+		soft    = Color3.fromRGB(238, 238, 240),
+		track   = Color3.fromRGB(200, 200, 206),
+		input   = Color3.fromRGB(245, 245, 247),
 		knob    = Color3.fromRGB(255, 255, 255),
-		ok      = Color3.fromRGB(34, 197, 94),
+		ok      = Color3.fromRGB(22, 163, 74),
 	},
 }
 
@@ -117,6 +118,22 @@ local state = {
 	oneClick    = false,
 }
 
+local THEME_ORDER = { "dark", "white" }
+
+local function nextThemeName(cur)
+	for i, name in ipairs(THEME_ORDER) do
+		if name == cur then
+			return THEME_ORDER[i % #THEME_ORDER + 1]
+		end
+	end
+	return "dark"
+end
+
+local THEME_LABEL = {
+	dark = "深色主题",
+	white = "纯白主题",
+}
+
 local pal = Themes[state.theme]
 local paint = {}   -- 颜色登记表：切主题时统一刷新
 
@@ -139,7 +156,7 @@ end
 -- ============================================================
 
 -- ============================================================
--- 3. 界面骨架（尺寸按 HTML：nav 180px / padding 16 / gap 10）
+-- 3. 界面骨架
 -- ============================================================
 local UI_PARENT
 safe(function()
@@ -185,9 +202,9 @@ local MOBILE = (DEVICE ~= "pc")
 
 -- 每种设备的标准尺寸（单位：像素）
 local SIZE_PRESET = {
-	pc     = { w = 750, h = 500, nav = 110 },
-	tablet = { w = 700, h = 470, nav = 104 },
-	phone  = { w = 700, h = 470, nav = 100 },
+	pc     = { w = 750, h = 500, nav = 92 },
+	tablet = { w = 700, h = 470, nav = 86 },
+	phone  = { w = 700, h = 470, nav = 84 },
 }
 
 -- 卡片右侧控件与右边缘的距离（想更靠左就调大这个数）
@@ -205,10 +222,11 @@ local PANEL_OFFSET_Y = 0
 
 local running = true      -- 关闭脚本时置 false，所有循环退出
 local started = false     -- 欢迎窗点「打开脚本」后置 true
+local zoomed = false      -- □ 放大状态（启动后设为 true = 全屏）
 local FLOAT_ICON = "rbxassetid://109221032399431"   -- EX HUD logo
 local customSize = false  -- 用户手动拖过大小后，applyLayout 不再覆盖
 local applyLayout          -- 前向声明：窗口按钮要用
-local zoomed = false   -- □ 放大状态（true 时面板铺满屏幕）
+zoomed = false   -- 初始不放大（点开脚本后会设为 true）
 
 -- 计算当前应使用的尺寸（同时按屏幕做上限保护，绝不超出画面）
 local function calcSizes()
@@ -233,20 +251,20 @@ local function calcSizes()
 		ph = math.floor(vp.Y * fracH)
 		pw = math.max(280, pw)
 		ph = math.max(220, ph)
-		nw = math.floor(math.clamp(pw * 0.10, 92, 150))
+		nw = math.floor(math.clamp(pw * 0.085, 80, 120))
 	else
 		pw = math.min(preset.w, maxW)
 		ph = math.min(preset.h, maxH)
 		nw = preset.nav
 		if pw - nw < 260 then
-			nw = math.clamp(pw * 0.26, 88, preset.nav)
+			nw = math.clamp(pw * 0.22, 78, preset.nav)
 		end
 	end
 
-	-- 放大状态：占满屏幕（留 8 边距）
+	-- 放大状态：真正铺满全屏（不留边距）
 	if zoomed then
-		pw = maxW
-		ph = maxH
+		pw = vp.X
+		ph = vp.Y
 	end
 
 	return math.floor(pw), math.floor(ph), math.floor(nw)
@@ -260,29 +278,54 @@ local panel = mk("Frame", {
 	Size = UDim2.fromOffset(PANEL_W, PANEL_H),
 	Position = UDim2.new(0.5, -PANEL_W / 2, 0.5, -PANEL_H / 2),
 	BackgroundColor3 = pal.bg,
+	BackgroundTransparency = 1,   -- 底色交给 screenBg，避免盖住黑边框
 	BorderSizePixel = 0,
-	ClipsDescendants = true,
+	ClipsDescendants = true,    -- 内容按面板圆角裁切
 	Active = true,
 }, gui)
 
-mk("UICorner", { CornerRadius = UDim.new(0, 22) }, panel)   -- iPad 风格大圆角
+mk("UICorner", { CornerRadius = UDim.new(0, 22) }, panel)   -- 屏幕圆角
+
+-- 外圈黑边（模拟 iPad 的机身边框）
+local frameBezel = mk("Frame", {
+	Name = "FrameBezel",
+	Size = UDim2.fromOffset(PANEL_W + 24, PANEL_H + 24),
+	Position = UDim2.new(0.5, -(PANEL_W + 24) / 2, 0.5, -(PANEL_H + 24) / 2),
+	BackgroundColor3 = Color3.fromRGB(8, 8, 10),
+	BorderSizePixel = 0,
+	ZIndex = 0,
+}, gui)
+mk("UICorner", { CornerRadius = UDim.new(0, 34) }, frameBezel)
+frameBezel.Visible = false   -- 欢迎窗阶段先隐藏，点「打开脚本」后才出现
+
+-- 屏幕底色（在黑边框之上、所有内容之下）
+local screenBg = mk("Frame", {
+	Name = "ScreenBg",
+	Size = UDim2.fromScale(1, 1),
+	Position = UDim2.fromOffset(0, 0),
+	BackgroundColor3 = pal.bg,
+	BorderSizePixel = 0,
+	ZIndex = 1,
+}, panel)
+mk("UICorner", { CornerRadius = UDim.new(0, 22) }, screenBg)
+reg(screenBg, "BackgroundColor3", "bg")   -- 22 + 12 = 34，正好贴合
+
+-- 机身外沿不加描边（避免圆弧线露出来）
 reg(panel, "BackgroundColor3", "bg")   -- 面板背景也要跟着主题变
 local panelScale = mk("UIScale", { Scale = 1 }, panel)
 
--- 内圈机身线：模拟 iPad 的边框与屏幕分界
-local bezel = mk("Frame", {
-	Name = "Bezel",
-	Size = UDim2.new(1, -12, 1, -12),
-	Position = UDim2.fromOffset(6, 6),
-	BackgroundTransparency = 1,
+-- 底部小白条（iPad 风格 Home Indicator）
+local homeBar = mk("Frame", {
+	Name = "HomeBar",
+	Size = UDim2.fromOffset(130, 4),
+	Position = UDim2.new(0.5, 0, 1, -10),
+	AnchorPoint = Vector2.new(0.5, 1),
+	BackgroundColor3 = Color3.fromRGB(250, 250, 252),
+	BackgroundTransparency = 0.25,
 	BorderSizePixel = 0,
-	ZIndex = 45,
+	ZIndex = 46,
 }, panel)
-mk("UICorner", { CornerRadius = UDim.new(0, 17) }, bezel)
-local bezelStroke = mk("UIStroke", { Thickness = 1 }, bezel)
-bezelStroke.Color = Color3.fromRGB(58, 58, 66)
-bezelStroke.Transparency = 0.35
-
+mk("UICorner", { CornerRadius = UDim.new(1, 0) }, homeBar)
 
 -- ============================================================
 -- 启动欢迎窗：点「打开脚本」才显示主面板
@@ -301,13 +344,13 @@ local box = mk("Frame", {
 	Size = UDim2.fromOffset(460, 160),
 	Position = UDim2.fromScale(0.5, 0.5),
 	AnchorPoint = Vector2.new(0.5, 0.5),
-	BackgroundColor3 = Color3.fromRGB(11, 15, 25),
+	BackgroundColor3 = Color3.fromRGB(0, 0, 0),        -- 纯黑
 	BorderSizePixel = 0,
 	ZIndex = 121,
 }, splash)
 mk("UICorner", { CornerRadius = UDim.new(0, 12) }, box)
 local boxStroke = mk("UIStroke", { Thickness = 1 }, box)
-boxStroke.Color = Color3.fromRGB(46, 52, 68)
+boxStroke.Color = Color3.fromRGB(58, 58, 66)
 
 mk("ImageLabel", {
 	Size = UDim2.fromOffset(26, 26),
@@ -369,6 +412,7 @@ mk("UICorner", { CornerRadius = UDim.new(0, 6) }, openBtn)
 
 openBtn.MouseButton1Click:Connect(function()
 	started = true
+	zoomed = false         -- 启动按预设尺寸（不铺满）
 	safe(function() splash:Destroy() end)
 	safe(function()
 		panel.Visible = started
@@ -398,9 +442,8 @@ local function makeGrip(side)
 		local line = mk("Frame", {
 			Size = UDim2.fromOffset(9 - (i - 1) * 4, 2),
 			Position = isRight
-				and UDim2.new(1, -4 - 9 + (i - 1) * 4, 1, -4 - (i - 1) * 5)
+				and UDim2.new(1, -13 + (i - 1) * 4, 1, -4 - (i - 1) * 5)
 				or UDim2.fromOffset(4 + (i - 1) * 4, 0),
-			AnchorPoint = Vector2.zero,
 			BackgroundColor3 = pal.sub,
 			BackgroundTransparency = 0.35,
 			BorderSizePixel = 0,
@@ -414,71 +457,53 @@ local function makeGrip(side)
 	local startSize, startPos, startMouse = nil, nil, nil
 
 	grip.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1
-			or input.UserInputType == Enum.UserInputType.Touch then
-			dragging = true
-			startMouse = input.Position
-			startSize = panel.AbsoluteSize
-			startPos = panel.Position
-		end
+		local hit = input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch
+		if not hit then return end
+		dragging = true
+		startMouse = input.Position
+		startSize = panel.AbsoluteSize
+		startPos = panel.Position
 	end)
 
 	UIS.InputChanged:Connect(function(input)
 		if not dragging then return end
-		if input.UserInputType == Enum.UserInputType.MouseMovement
-			or input.UserInputType == Enum.UserInputType.Touch then
-			local dx = input.Position.X - startMouse.X
-			local dy = input.Position.Y - startMouse.Y
+		local isMove = input.UserInputType == Enum.UserInputType.MouseMovement
+			or input.UserInputType == Enum.UserInputType.Touch
+		if not isMove then return end
 
-			local vp = viewport()
-			local minW, minH = 360, 240
-			local maxW, maxH = math.max(minW, vp.X - 16), math.max(minH, vp.Y - 16)
+		local dx = input.Position.X - startMouse.X
+		local dy = input.Position.Y - startMouse.Y
+		local vp = viewport()
+		local minW, minH = 360, 240
+		local maxW = math.max(minW, vp.X - 16)
+		local maxH = math.max(minH, vp.Y - 16)
 
-			local newW, newH
-			if isRight then
-				newW = math.clamp(startSize.X + dx, minW, maxW)
-				newH = math.clamp(startSize.Y + dy, minH, maxH)
-				panel.Size = UDim2.fromOffset(newW, newH)
-			else
-				newW = math.clamp(startSize.X - dx, minW, maxW)
-				newH = math.clamp(startSize.Y + dy, minH, maxH)
-				panel.Size = UDim2.fromOffset(newW, newH)
-				panel.Position = UDim2.new(
-					startPos.X.Scale, startPos.X.Offset + (startSize.X - newW),
-					startPos.Y.Scale, startPos.Y.Offset)
-			end
-
-			PANEL_W, PANEL_H = newW, newH
-			customSize = true
-
-			-- 内容列数跟着宽度走
-			local oneCol = (newW - NAV_W - 32) < 430
-			for _, item in ipairs(gridList) do
-				pcall(function()
-					if oneCol then
-						item.lay.CellSize = UDim2.new(1, 0, 0, 46)
-						item.lay.CellPadding = UDim2.fromOffset(0, 8)
-						item.lay.FillDirectionMaxCells = 1
-					else
-						item.lay.CellSize = UDim2.new(0.5, -4, 0, item.h or 54)
-						item.lay.CellPadding = UDim2.fromOffset(8, 8)
-						item.lay.FillDirectionMaxCells = 2
-					end
-				end)
-			end
+		local newW, newH
+		if isRight then
+			newW = math.clamp(startSize.X + dx, minW, maxW)
+			newH = math.clamp(startSize.Y + dy, minH, maxH)
+			panel.Size = UDim2.fromOffset(newW, newH)
+		else
+			newW = math.clamp(startSize.X - dx, minW, maxW)
+			newH = math.clamp(startSize.Y + dy, minH, maxH)
+			panel.Size = UDim2.fromOffset(newW, newH)
+			panel.Position = UDim2.new(
+				startPos.X.Scale, startPos.X.Offset + (startSize.X - newW),
+				startPos.Y.Scale, startPos.Y.Offset)
 		end
+
+		PANEL_W, PANEL_H = newW, newH
+		customSize = true
+
+		-- 关键：整块面板按新尺寸重排，侧栏 / 内容 / 卡片一起缩
+		safe(function() applyLayout(newW, newH, true) end)
 	end)
 
 	UIS.InputEnded:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1
-			or input.UserInputType == Enum.UserInputType.Touch then
-			dragging = false
-		end
-	end)
-
-	-- 双击恢复默认
-	grip.MouseButton1Click:Connect(function()
-		if dragging then return end
+		local up = input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch
+		if up then dragging = false end
 	end)
 
 	return grip
@@ -486,18 +511,96 @@ end
 
 -- 只保留右下角把手（左下角已去掉）
 makeGrip("br")
+
+-- ============================================================
+-- 边缘拖拽缩放：拖动面板的右 / 下 / 左边缘即可改大小
+-- ============================================================
+local function bindEdge(kind)
+	local box = mk("TextButton", {
+		Name = "Edge_" .. kind,
+		BackgroundTransparency = 1,
+		Text = "",
+		ZIndex = 41,
+	}, panel)
+
+	if kind == "right" then
+		box.Size = UDim2.new(0, 8, 1, -40)
+		box.Position = UDim2.new(1, -8, 0, 30)
+	elseif kind == "left" then
+		box.Size = UDim2.new(0, 8, 1, -40)
+		box.Position = UDim2.new(0, 0, 0, 30)
+	elseif kind == "bottom" then
+		box.Size = UDim2.new(1, -40, 0, 8)
+		box.Position = UDim2.new(0, 0, 1, -8)
+	end
+
+	local dragging, startSize, startPos, startMouse = false, nil, nil, nil
+
+	box.InputBegan:Connect(function(input)
+		local hit = input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch
+		if not hit then return end
+		dragging = true
+		startMouse = input.Position
+		startSize = panel.AbsoluteSize
+		startPos = panel.Position
+	end)
+
+	UIS.InputChanged:Connect(function(input)
+		if not dragging then return end
+		local isMove = input.UserInputType == Enum.UserInputType.MouseMovement
+			or input.UserInputType == Enum.UserInputType.Touch
+		if not isMove then return end
+
+		local dx = input.Position.X - startMouse.X
+		local dy = input.Position.Y - startMouse.Y
+		local vp = viewport()
+		local minW, minH = 360, 240
+
+		local newW, newH = startSize.X, startSize.Y
+		local newX, newY = startPos.X.Offset, startPos.Y.Offset
+
+		if kind == "right" then
+			newW = math.clamp(startSize.X + dx, minW, math.max(minW, vp.X))
+		elseif kind == "bottom" then
+			newH = math.clamp(startSize.Y + dy, minH, math.max(minH, vp.Y))
+		elseif kind == "left" then
+			newW = math.clamp(startSize.X - dx, minW, math.max(minW, vp.X))
+			newX = startPos.X.Offset + (startSize.X - newW)
+		end
+
+		panel.Size = UDim2.fromOffset(newW, newH)
+		panel.Position = UDim2.new(0, newX, 0, newY)
+
+		PANEL_W, PANEL_H = newW, newH
+		customSize = true
+		safe(function() applyLayout(newW, newH, true) end)
+	end)
+
+	UIS.InputEnded:Connect(function(input)
+		local up = input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch
+		if up then dragging = false end
+	end)
+end
+
+bindEdge("right")
+bindEdge("bottom")
+bindEdge("left")
 local border = reg(mk("UIStroke", { Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, panel), "Color", "line")
-border.Transparency = 0.15
+border.Transparency = 0.35
 
 -- 侧栏
 local nav = mk("Frame", {
 	Name = "Nav",
 	Size = UDim2.fromOffset(NAV_W, PANEL_H),
-	BackgroundColor3 = pal.panel,
+	BackgroundColor3 = pal.bg,
 	BorderSizePixel = 0,
+	ZIndex = 2,
+	ClipsDescendants = true,   -- 不让内部元素溢出到顶栏
 }, panel)
-mk("UICorner", { CornerRadius = UDim.new(0, 22) }, nav)   -- 跟随面板圆角
-reg(nav, "BackgroundColor3", "panel")
+reg(nav, "BackgroundColor3", "bg")
+mk("UICorner", { CornerRadius = UDim.new(0, 22) }, nav)   -- 与面板同半径，盖住方角
 
 -- 搜索框（导航上方）
 local navSearch = mk("TextBox", {
@@ -539,6 +642,7 @@ local scroller = mk("ScrollingFrame", {
 	Position = UDim2.fromOffset(NAV_W, 0),
 	BackgroundTransparency = 1,
 	BorderSizePixel = 0,
+	ZIndex = 2,
 	ScrollBarThickness = 3,
 	VerticalScrollBarInset = Enum.ScrollBarInset.None,
 	CanvasSize = UDim2.new(0, 0, 0, 0),
@@ -577,9 +681,18 @@ local function bindDrag(box)
 			or input.UserInputType == Enum.UserInputType.Touch then
 			local dx = input.Position.X - dragStart.X
 			local dy = input.Position.Y - dragStart.Y
+
+			-- 自由拖动：不限制位置
 			panel.Position = UDim2.new(
 				startPos.X.Scale, startPos.X.Offset + dx,
 				startPos.Y.Scale, startPos.Y.Offset + dy)
+			-- 黑边框跟着走
+			safe(function()
+				if frameBezel then
+					local px, py = panel.Position.X, panel.Position.Y
+					frameBezel.Position = UDim2.new(px.Scale, px.Offset - 12, py.Scale, py.Offset - 12)
+				end
+			end)
 		end
 	end)
 
@@ -676,7 +789,7 @@ local function card(grid, title, desc, isOn, onToggle)
 		BorderSizePixel = 0,
 	}, grid)
 	mk("UICorner", { CornerRadius = UDim.new(0, 8) }, cardFrame)
-	local stroke = reg(mk("UIStroke", { Thickness = 1 }, cardFrame), "Color", "line")   -- 描边固定，不随开关变化
+	reg(mk("UIStroke", { Thickness = 1 }, cardFrame), "Color", "line")   -- 描边固定，不随开关变化
 	reg(cardFrame, "BackgroundColor3", "panel")
 
 	local lbl = mk("TextLabel", {
@@ -898,7 +1011,7 @@ local function makeView(id, title, placeholder)
 			Text = text,
 		}, body)
 		reg(s, "TextColor3", "sub")
-		local sp = mk("Frame", {
+		mk("Frame", {
 			Size = UDim2.new(1, 0, 0, 8),
 			BackgroundTransparency = 1,
 		}, body)
@@ -979,10 +1092,10 @@ local navScroll = mk("ScrollingFrame", {
 	ZIndex = 2,
 }, nav)
 
-navScroll.Position = UDim2.fromOffset(0, 64)
-navScroll.Size = UDim2.new(1, 0, 1, -96)
+navScroll.Position = UDim2.fromOffset(0, 66)
+navScroll.Size = UDim2.new(1, 0, 1, -98)
 
-local navY = 12
+local navY = 6
 local navList = {}   -- 记录导航项，applyLayout 里统一重排
 for _, item in ipairs(NAV_ITEMS) do
 	if item.divider then
@@ -1022,7 +1135,7 @@ for _, item in ipairs(NAV_ITEMS) do
 end
 
 -- ============================================================
--- 5.5 窗口按钮（全局，永远可见）
+-- 6.1 窗口按钮
 --     − 收成小窗（显示 EX HUD）  □ 放大/还原  × 关闭脚本
 -- ============================================================
 local collapsed = false
@@ -1074,12 +1187,12 @@ local topbar = mk("Frame", {
 	Name = "TopBar",
 	Size = UDim2.new(1, -NAV_W, 0, 30),
 	Position = UDim2.fromOffset(NAV_W, 0),
-	BackgroundColor3 = pal.panel,
+	BackgroundColor3 = pal.bg,
 	BorderSizePixel = 0,
 	ZIndex = 25,
 }, panel)
-mk("UICorner", { CornerRadius = UDim.new(0, 22) }, topbar)
-reg(topbar, "BackgroundColor3", "panel")
+reg(topbar, "BackgroundColor3", "bg")
+mk("UICorner", { CornerRadius = UDim.new(0, 22) }, topbar)   -- 与面板同半径
 
 local topbarLine = mk("Frame", {
 	Size = UDim2.new(1, 0, 0, 1),
@@ -1094,11 +1207,11 @@ reg(topbarLine, "BackgroundColor3", "line")
 -- EX HUD 放在左侧导航顶部（红框位置），不在顶栏里
 local topTitle = mk("TextLabel", {
 	Name = "TopTitle",
-	Size = UDim2.fromOffset(math.max(60, NAV_W - 16), 28),
+	Size = UDim2.fromOffset(math.max(60, NAV_W - 12), 28),
 	Position = UDim2.fromOffset(12, 1),
 	BackgroundTransparency = 1,
 	Font = Enum.Font.GothamBold,
-	TextSize = 12,
+	TextSize = 15,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	Text = "EX HUD",
 	ZIndex = 26,
@@ -1137,7 +1250,7 @@ safe(function()
 	clock.Position = UDim2.fromOffset(12, 6)
 	clock.TextSize = 12
 	clock.TextXAlignment = Enum.TextXAlignment.Left
-	clock.ZIndex = 27
+	clock.ZIndex = 30
 end)
 
 -- 三个按钮挂到顶栏
@@ -1168,7 +1281,7 @@ local floatBtn = mk("TextButton", {
 	ZIndex = 60,
 }, panel)
 
-local floatImg = mk("ImageLabel", {
+mk("ImageLabel", {
 	Name = "FloatImg",
 	Size = UDim2.fromScale(1, 1),
 	BackgroundTransparency = 1,
@@ -1178,7 +1291,7 @@ local floatImg = mk("ImageLabel", {
 	ZIndex = 61,
 }, floatBtn)
 
-local floatTxt = mk("TextLabel", {
+mk("TextLabel", {
 	Name = "FloatTxt",
 	Size = UDim2.fromScale(1, 1),
 	BackgroundTransparency = 1,
@@ -1208,9 +1321,13 @@ local function setFloating(on)
 			bMax.Visible = false
 			bClose.Visible = false
 			floatBtn.Visible = true
+			if homeBar then homeBar.Visible = false end
+			if frameBezel then frameBezel.Visible = false end
 			border.Enabled = state.borderOn
 		else
 			floatBtn.Visible = false
+			if homeBar then homeBar.Visible = true end
+			if frameBezel then frameBezel.Visible = started end
 			bMin.Visible = true
 			bMax.Visible = true
 			bClose.Visible = true
@@ -1258,13 +1375,14 @@ end
 
 -- 侧栏底部
 local footer = mk("TextLabel", {
-	Size = UDim2.new(1, -20, 0, 16),
-	Position = UDim2.new(0, 10, 1, -36),
+	Size = UDim2.fromOffset(120, 18),
+	Position = UDim2.fromOffset(74, 6),
 	BackgroundTransparency = 1,
 	Font = Enum.Font.Gotham,
-	TextSize = 12,
+	TextSize = 11,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	Text = "v1.0.0 · 已连接",
+	ZIndex = 30,
 }, nav)
 reg(footer, "TextColor3", "sub")
 
@@ -1423,7 +1541,7 @@ function AB.hookNamecall()
 	if not need("hookmetamethod", hookmetamethod) then return 0 end
 	if not need("getnamecallmethod", getnamecallmethod) then return 0 end
 
-	O.namecall = hookmetamethod(game, "__namecall", function(self, ...)
+	local hookFn = function(self, ...)
 		local packed = table.pack(...)
 		local method = getnamecallmethod()
 
@@ -1450,7 +1568,15 @@ function AB.hookNamecall()
 			return O.namecall(self, table.unpack(packed, 1, packed.n))
 		end
 		return self[method](self, table.unpack(packed, 1, packed.n))
-	end)
+	end
+
+	-- 有 newcclosure 就包一层，避免被检测为裸 Lua 闭包
+	if type(newcclosure) == "function" then
+		local ok, wrapped = pcall(newcclosure, hookFn)
+		if ok then hookFn = wrapped end
+	end
+
+	O.namecall = hookmetamethod(game, "__namecall", hookFn)
 	return 1
 end
 
@@ -1600,7 +1726,7 @@ do
 end
 
 -- ============================================================
--- 6.8 主要功能（圣奥里常用）
+-- 6.8 主要功能
 --   所有实现都用 pcall 包着，游戏里找不到对应模块就自动跳过
 -- ============================================================
 local Main = {
@@ -1662,16 +1788,14 @@ task.spawn(function()
 			safe(function()
 				local _, _, root = getChar()
 				if root then
-					for _, d in ipairs(Workspace:GetDescendants()) do
-						if d:IsA("ProximityPrompt") then
+					for _, rec in ipairs(promptCache) do
+						local d, part = rec.prompt, rec.part
+						if d.Parent and part.Parent
+							and (part.Position - root.Position).Magnitude < 60 then
 							local blob = string.lower(tostring(d.Name) .. " " .. tostring(d.ActionText))
 							if string.find(blob, "cash") or string.find(blob, "money")
 								or string.find(blob, "pick") or string.find(blob, "collect") then
-								local part = d.Parent
-								if part and part:IsA("BasePart")
-									and (part.Position - root.Position).Magnitude < 60 then
-									fireProximityPrompt(d)
-								end
+								fireProximityPrompt(d)
 							end
 						end
 					end
@@ -1697,7 +1821,7 @@ end
 local function relayoutNav()
 	local raw = navSearch.Text or ""
 	local query = string.lower(raw)
-	local y = 12
+	local y = 6
 	local visibleCount = 0
 	for _, rec in ipairs(navList) do
 		local show = true
@@ -1757,7 +1881,7 @@ task.spawn(function()
 				end
 			end)
 		end
-		task.wait(0.1)
+		task.wait(0.15)
 	end
 end)
 
@@ -1767,7 +1891,7 @@ task.spawn(function()
 	while running do
 		if Main.vaultWatch then
 			safe(function()
-				for _, d in ipairs(Workspace:GetDescendants()) do
+				for _, d in ipairs(Workspace:GetChildren()) do
 					if not seenVaults[d] then
 						local n = string.lower(tostring(d.Name))
 						if string.find(n, "vault") or string.find(n, "金库")
@@ -1780,7 +1904,7 @@ task.spawn(function()
 					end
 				end
 			end)
-			task.wait(3)
+			task.wait(6)
 		else
 			task.wait(2)
 		end
@@ -1915,7 +2039,7 @@ local function teleportForward()
 end
 
 -- ============================================================
--- 6.9 扩展功能：战斗 / 逃犯 / 警察 / 透视 / 传送 / 商店
+-- 6.9 扩展功能
 -- ============================================================
 -- 事件助手：统一往游戏主 Remote 发消息
 local function mainRemote(kind)
@@ -2082,7 +2206,7 @@ task.spawn(function()
 				end)
 			end
 		end
-		task.wait(0.03)
+		task.wait(Ext.aura and 0.03 or 0.5)
 	end
 end)
 
@@ -2246,6 +2370,20 @@ local function buildEsp(p)
 		TextColor3 = Color3.fromRGB(235, 235, 240),
 	}, bill)
 
+	-- 骨骼线（需要 Drawing，没有就跳过）
+	local boneLines = nil
+	if Ext.espBone and Drawing and Drawing.new then
+		boneLines = {}
+		for i = 1, 12 do
+			local ln = Drawing.new("Line")
+			ln.Thickness = 1
+			ln.Color = Color3.fromRGB(235, 235, 240)
+			ln.Transparency = 0.85
+			ln.Visible = false
+			boneLines[i] = ln
+		end
+	end
+
 	local hl = mk("Highlight", {
 		FillTransparency = 0.75,
 		OutlineTransparency = 0,
@@ -2255,7 +2393,7 @@ local function buildEsp(p)
 	}, ch)
 	pcall(function() hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop end)
 
-	espCache[p] = { bill = bill, lbl = lbl, hl = hl }
+	espCache[p] = { bill = bill, lbl = lbl, hl = hl, bone = boneLines }
 end
 
 task.spawn(function()
@@ -2281,9 +2419,54 @@ task.spawn(function()
 								if Ext.espDist and myR and r then
 									table.insert(parts, math.floor((r.Position - myR.Position).Magnitude) .. "m")
 								end
-								rec.lbl.Text = table.concat(parts, "  ")
+								local txt = table.concat(parts, "  ")
+								if rec.lastText ~= txt then
+									rec.lbl.Text = txt
+									rec.lastText = txt
+								end
 								rec.bill.Enabled = true
 							end
+							-- 骨骼：Head → 躯干 → 四肢
+							if rec.bone and Ext.espBone then
+								local cam = Workspace.CurrentCamera
+								local joints = {
+									"Head", "UpperTorso", "LowerTorso",
+									"LeftUpperArm", "LeftLowerArm", "LeftHand",
+									"RightUpperArm", "RightLowerArm", "RightHand",
+									"LeftUpperLeg", "LeftLowerLeg", "LeftFoot",
+									"RightUpperLeg", "RightLowerLeg", "RightFoot",
+								}
+								local pos = {}
+								for _, jn in ipairs(joints) do
+									local jp = ch and ch:FindFirstChild(jn)
+									local scr = jp and cam and cam:WorldToViewportPoint(jp.Position)
+									pos[jn] = scr and Vector2.new(scr.X, scr.Y) or nil
+								end
+								local pairsList = {
+									{ "Head", "UpperTorso" }, { "UpperTorso", "LowerTorso" },
+									{ "UpperTorso", "LeftUpperArm" }, { "LeftUpperArm", "LeftLowerArm" },
+									{ "LeftLowerArm", "LeftHand" },
+									{ "UpperTorso", "RightUpperArm" }, { "RightUpperArm", "RightLowerArm" },
+									{ "RightLowerArm", "RightHand" },
+									{ "LowerTorso", "LeftUpperLeg" }, { "LeftUpperLeg", "LeftLowerLeg" },
+									{ "LeftLowerLeg", "LeftFoot" },
+									{ "LowerTorso", "RightUpperLeg" },
+								}
+								for idx, pr in ipairs(pairsList) do
+									local ln = rec.bone[idx]
+									local a, b = pos[pr[1]], pos[pr[2]]
+									if ln and a and b then
+										ln.From = a
+										ln.To = b
+										ln.Visible = true
+									elseif ln then
+										ln.Visible = false
+									end
+								end
+							elseif rec.bone then
+								for _, ln in ipairs(rec.bone) do ln.Visible = false end
+							end
+
 							-- 方块用 Highlight 描边代替（没有 Drawing 也能看）
 							if rec.hl then
 								rec.hl.Enabled = Ext.espBox
@@ -2351,7 +2534,7 @@ task.spawn(function()
 				end
 			end)
 		end
-		task.wait(0.1)
+		task.wait((Ext.tpLoop or Ext.orbit or Ext.watching) and 0.1 or 0.5)
 	end
 end)
 
@@ -2360,7 +2543,10 @@ local function teleportToPlace(keyword)
 	safe(function()
 		local myR = myRoot()
 		if not myR then return end
+		local count = 0
 		for _, d in ipairs(Workspace:GetDescendants()) do
+			count = count + 1
+			if count > 6000 then return end     -- 最多看 6000 个对象，防止卡住
 			if d:IsA("BasePart") and string.find(string.lower(d.Name), string.lower(keyword)) then
 				pcall(function() myR.CFrame = CFrame.new(d.Position + Vector3.new(0, 3, 0)) end)
 				return
@@ -2528,7 +2714,7 @@ local function pickerCard(grid, title, desc, options, multi, getSel, onChange)
 end
 
 -- ============================================================
--- 7. 一键破解（沿用圣奥里适配逻辑）
+-- 7. 一键破解
 -- ============================================================
 local Hack = { patched = {}, order = {}, flags = {} }
 
@@ -2659,7 +2845,7 @@ local function hackRestore()
 end
 
 -- ============================================================
--- 8. 功能实现
+-- 8. 功能循环
 -- ============================================================
 local function getChar()
 	local ch = LP.Character
@@ -2773,6 +2959,34 @@ local function flyStart()
 	end)
 end
 
+-- ============================================================
+-- 提示缓存：每 2 秒扫一次 Workspace，热循环只遍历这个小表
+--   原来每 0.1 秒 GetDescendants() 一次，副本多的地图会明显卡
+-- ============================================================
+local promptCache = {}
+
+local function refreshPromptCache()
+	local list = {}
+	safe(function()
+		for _, d in ipairs(Workspace:GetDescendants()) do
+			if d:IsA("ProximityPrompt") then
+				local part = d.Parent
+				if part and part:IsA("BasePart") then
+					table.insert(list, { prompt = d, part = part })
+				end
+			end
+		end
+	end)
+	promptCache = list
+end
+
+task.spawn(function()
+	while running do
+		refreshPromptCache()
+		task.wait(2)
+	end
+end)
+
 -- 互动（自动按附近 ProximityPrompt）
 task.spawn(function()
 	while running do
@@ -2781,16 +2995,13 @@ task.spawn(function()
 				local _, _, root = getChar()
 				if root then
 					local best, bd
-					for _, d in ipairs(Workspace:GetDescendants()) do
-						if d:IsA("ProximityPrompt") then
-							local part = d.Parent
-							if part and part:IsA("BasePart") then
-								local dist = (part.Position - root.Position).Magnitude
-								-- 用提示自身的可用距离 + 余量，原来固定 20 太死
-								local reach = math.max(26, (d.MaxActivationDistance or 10) + 8)
-								if dist <= reach and (not bd or dist < bd) then
-									best, bd = d, dist
-								end
+					for _, rec in ipairs(promptCache) do
+						local d, part = rec.prompt, rec.part
+						if d.Parent and part.Parent then
+							local dist = (part.Position - root.Position).Magnitude
+							local reach = math.max(26, (d.MaxActivationDistance or 10) + 8)
+							if dist <= reach and (not bd or dist < bd) then
+								best, bd = d, dist
 							end
 						end
 					end
@@ -2880,7 +3091,7 @@ local function show(id)
 end
 
 -- ============================================================
--- 10. 各页面
+-- 10. 页面装配
 -- ============================================================
 -- ---- 主页 ----
 do
@@ -2891,19 +3102,19 @@ do
 	local g = v.grid()
 
 	-- 启用边框
-	local borderCard = card(g, "启用边框", "显示面板边框", state.borderOn, function(on)
+	card(g, "启用边框", "显示面板边框", state.borderOn, function(on)
 		state.borderOn = on
 		applyBorder()
 	end)
 
 	-- 彩虹边框
-	local rainbowCard = card(g, "彩虹边框", "循环渐变色彩", state.rainbowOn, function(on)
+	card(g, "彩虹边框", "循环渐变色彩", state.rainbowOn, function(on)
 		state.rainbowOn = on
 		applyBorder()
 	end)
 
 	-- 面板按键
-	local bindCard = card(g, "面板按键", "启用快捷键", state.bindOn, function(on)
+	card(g, "面板按键", "启用快捷键", state.bindOn, function(on)
 		state.bindOn = on
 	end)
 
@@ -2921,24 +3132,25 @@ do
 	end)
 
 	-- 切换主题（点击切换）
-	local themeCard = card(g, "切换主题", "当前：深色主题", false, function()
-		local nextTheme = (state.theme == "dark") and "light" or "dark"
-		state.theme = nextTheme
-		if themeCard.sub then
-			themeCard.sub.Text = nextTheme == "dark" and "当前：深色主题" or "当前：白色主题"
+	local themeCard = card(g, "切换主题", "当前：" .. (THEME_LABEL[state.theme] or "深色主题"), false, function()
+		state.theme = nextThemeName(state.theme)
+		if themeCard and themeCard.sub then
+			themeCard.sub.Text = "当前：" .. (THEME_LABEL[state.theme] or state.theme)
 		end
-		applyPalette()
-		show(curView)
-		applyBorder()
+		safe(applyPalette)
+		safe(function() show(curView) end)
+		safe(applyBorder)
 		safe(function()
 			panel.BackgroundColor3 = pal.bg
-			nav.BackgroundColor3 = pal.panel
+			nav.BackgroundColor3 = pal.bg
 			if navLine then navLine.BackgroundColor3 = pal.line end
-			if topbar then topbar.BackgroundColor3 = pal.panel end
+			if topbar then topbar.BackgroundColor3 = pal.bg end
 			if topbarLine then topbarLine.BackgroundColor3 = pal.line end
+			if scroller then scroller.ScrollBarImageColor3 = pal.line end
+			if homeBar then homeBar.BackgroundColor3 = pal.accent end
 		end)
 		if not Guard.quiet then
-			print(TAG .. " 主题切换为：" .. nextTheme)
+			print(TAG .. " 主题：" .. tostring(state.theme))
 		end
 	end)
 
@@ -2991,7 +3203,7 @@ do
 	card(g1, "跳跃修改", "开启跳跃高度修改", state.jumpOn, function(on)
 		state.jumpOn = on
 	end)
-	local _, sJump = sliderCard(g1, "跳跃高度", 0.1, 10.0, 0.1, state.jump, function(v2)
+	sliderCard(g1, "跳跃高度", 0.1, 10.0, 0.1, state.jump, function(v2)
 		state.jump = v2
 	end)
 
@@ -3003,7 +3215,7 @@ do
 		if on then safe(flyStart) else safe(flyStop) end
 	end)
 
-	local _, sFly = sliderCard(g1, "飞行速度(格/秒)", 20, 400, 5, state.flySpeedValue, function(v2)
+	sliderCard(g1, "飞行速度(格/秒)", 20, 400, 5, state.flySpeedValue, function(v2)
 		state.flySpeedValue = v2
 	end)
 	card(g1, "穿墙", "", state.noclip, function(on)
@@ -3013,7 +3225,7 @@ do
 	card(g1, "互动", "", state.interactOn, function(on)
 		state.interactOn = on
 	end)
-	local _, sInt = sliderCard(g1, "互动时间(秒)", 0.1, 10.0, 0.1, state.interactSec, function(v2)
+	sliderCard(g1, "互动时间(秒)", 0.1, 10.0, 0.1, state.interactSec, function(v2)
 		state.interactSec = v2
 	end)
 end
@@ -3122,13 +3334,13 @@ do
 	card(g, "战斗检测", "只打战斗状态目标", Ext.auraCombat, function(on)
 		Ext.auraCombat = on
 	end)
-	local _, aR = sliderCard(g, "攻击范围", 20, 400, 5, Ext.auraRange, function(v2)
+	sliderCard(g, "攻击范围", 20, 400, 5, Ext.auraRange, function(v2)
 		Ext.auraRange = v2
 	end)
 	card(g, "多目标攻击", "同时打多个目标", Ext.auraMulti, function(on)
 		Ext.auraMulti = on
 	end)
-	local _, aD = sliderCard(g, "伤害倍数", 1, 30, 1, Ext.auraDamage, function(v2)
+	sliderCard(g, "伤害倍数", 1, 30, 1, Ext.auraDamage, function(v2)
 		Ext.auraDamage = v2
 	end)
 
@@ -3146,13 +3358,13 @@ do
 	card(g2, "显示FOV圈", "屏幕上画准心圈", Ext.showFov, function(on)
 		Ext.showFov = on
 	end)
-	local _, fR = sliderCard(g2, "FOV范围", 50, 600, 10, Ext.fovRange, function(v2)
+	sliderCard(g2, "FOV范围", 50, 600, 10, Ext.fovRange, function(v2)
 		Ext.fovRange = v2
 	end)
-	local _, fT = sliderCard(g2, "FOV圈厚度", 1, 6, 1, Ext.fovThick, function(v2)
+	sliderCard(g2, "FOV圈厚度", 1, 6, 1, Ext.fovThick, function(v2)
 		Ext.fovThick = v2
 	end)
-	local _, fD = sliderCard(g2, "子弹追敌距离", 50, 1000, 25, Ext.fovDist, function(v2)
+	sliderCard(g2, "子弹追敌距离", 50, 1000, 25, Ext.fovDist, function(v2)
 		Ext.fovDist = v2
 	end)
 	pickerCard(g2, "子弹部位", "选头部或身体", { "Head", "Torso" }, false,
@@ -3172,10 +3384,10 @@ do
 	card(g, "躲避警察", "警察靠近自动闪走", Ext.evade, function(on)
 		Ext.evade = on
 	end)
-	local _, eR = sliderCard(g, "检测范围", 30, 400, 10, Ext.evadeRange, function(v2)
+	sliderCard(g, "检测范围", 30, 400, 10, Ext.evadeRange, function(v2)
 		Ext.evadeRange = v2
 	end)
-	local _, eT = sliderCard(g, "传送范围", 20, 300, 10, Ext.evadeTpRange, function(v2)
+	sliderCard(g, "传送范围", 20, 300, 10, Ext.evadeTpRange, function(v2)
 		Ext.evadeTpRange = v2
 	end)
 end
@@ -3243,7 +3455,7 @@ do
 		function() return Ext.tpDir end,
 		function(opt) Ext.tpDir = opt end)
 
-	local _, dS = sliderCard(g, "传送距离", 1, 50, 1, Ext.tpDist, function(v2)
+	sliderCard(g, "传送距离", 1, 50, 1, Ext.tpDist, function(v2)
 		Ext.tpDist = v2
 	end)
 
@@ -3372,7 +3584,6 @@ do
 	end)
 
 
-
 end
 
 -- 导航点击
@@ -3385,19 +3596,37 @@ end
 -- ============================================================
 -- 11.5 屏幕自适应（手机 / 电脑 / 横竖屏切换）
 -- ============================================================
-function applyLayout()
-	if customSize then
+function applyLayout(forceW, forceH, keepPos)
+	if customSize and not forceW then
 		-- 用户手动调过大小，不再按预设覆盖
 		return
 	end
-	local pw, ph, nw = calcSizes()
+	local pw, ph, nw
+	if forceW then
+		pw, ph = forceW, forceH
+		nw = math.floor(math.clamp(pw * 0.13, 72, 120))
+	else
+		pw, ph, nw = calcSizes()
+	end
 	PANEL_W, PANEL_H, NAV_W = pw, ph, nw
 
 	-- 不再用 UIScale（小数缩放会让文字发虚），直接按整像素定位
 
 	safe(function()
 		if panelScale then panelScale.Scale = 1 end
-		panel.Position = UDim2.new(0.5, -pw / 2 + PANEL_OFFSET_X, 0.5, -ph / 2 + PANEL_OFFSET_Y)
+		if not keepPos then
+			if zoomed then
+				panel.Position = UDim2.fromOffset(0, 0)   -- 全屏：贴左上角
+			else
+				panel.Position = UDim2.new(0.5, -pw / 2 + PANEL_OFFSET_X, 0.5, -ph / 2 + PANEL_OFFSET_Y)
+			end
+		end
+		if frameBezel then
+			local px, py = panel.Position.X, panel.Position.Y
+			frameBezel.Size = UDim2.fromOffset(pw + 24, ph + 24)
+			frameBezel.Position = UDim2.new(px.Scale, px.Offset - 12, py.Scale, py.Offset - 12)
+			frameBezel.Visible = started and not collapsed
+		end
 		panel.Visible = started
 	end)
 
@@ -3409,8 +3638,8 @@ function applyLayout()
 		nav.Visible = true
 		nav.Size = UDim2.fromOffset(nw, ph)
 		if navScroll then
-			navScroll.Size = UDim2.new(1, 0, 1, -96)
-			navScroll.Position = UDim2.fromOffset(0, 64)
+			navScroll.Size = UDim2.new(1, 0, 1, -98)
+			navScroll.Position = UDim2.fromOffset(0, 66)
 		end
 		if navSearch then
 			navSearch.Size = UDim2.new(1, -16, 0, 26)
@@ -3491,7 +3720,7 @@ function applyLayout()
 				safe(function()
 					b.label.Position = UDim2.fromOffset(labelX, 0)
 					b.label.Size = UDim2.new(1, -(labelX + 8), 1, 0)
-					b.label.TextSize = narrow and 12 or (itemH < 30 and 12 or 14)
+					b.label.TextSize = narrow and 14 or (itemH < 26 and 14 or 16)
 				end)
 			end
 			y = y + itemH
@@ -3500,8 +3729,11 @@ function applyLayout()
 
 	-- 底部版本文字：面板太矮就隐藏，避免压住导航
 	safe(function()
-		footer.Visible = (ph >= 360)
-		footer.Position = UDim2.new(0, 10, 1, -34)
+		if topbar and footer.Parent ~= topbar then footer.Parent = topbar end
+		footer.Visible = true
+		footer.Position = UDim2.fromOffset(74, 6)
+		footer.Size = UDim2.fromOffset(120, 18)
+		footer.TextSize = 11
 	end)
 
 	-- 拖条尺寸跟着窗口走
