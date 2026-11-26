@@ -2040,15 +2040,6 @@ local function setChat(on)
 	end)
 end
 
--- 导航点传送：沿视线前方传送
-local function teleportForward()
-	local _, _, root = getChar()
-	local cam = Workspace.CurrentCamera
-	if not root or not cam then return end
-	local target = root.Position + cam.CFrame.LookVector * 60 + Vector3.new(0, 3, 0)
-	pcall(function() root.CFrame = CFrame.new(target) end)
-end
-
 -- ============================================================
 -- 6.9 扩展功能
 -- ============================================================
@@ -2106,7 +2097,7 @@ local Ext = {
 	cuff = false, cuffTp = false, globalTp = false, arrest = false, policeCombat = false,
 	-- 透视
 	espOn = false, espName = true, espDist = true, espHp = true,
-	espBox = true, espBone = false,
+	espBone = false,
 	espTeams = {},
 	-- 传送
 	tpTarget = nil, tpDir = "前面", tpDist = 5, tpLoop = false, watching = false, orbit = false,
@@ -2346,7 +2337,6 @@ local espCache = {}
 local function clearEsp()
 	for _, rec in pairs(espCache) do
 		pcall(function() if rec.bill then rec.bill:Destroy() end end)
-		pcall(function() if rec.hl then rec.hl:Destroy() end end)
 		pcall(function() if rec.box then rec.box:Remove() end end)
 		pcall(function() if rec.bone then for _, l in ipairs(rec.bone) do l:Remove() end end end)
 	end
@@ -2382,30 +2372,8 @@ local function buildEsp(p)
 		TextColor3 = Color3.fromRGB(235, 235, 240),
 	}, bill)
 
-	-- 骨骼线（需要 Drawing，没有就跳过）
-	local boneLines = nil
-	if Ext.espBone and Drawing and Drawing.new then
-		boneLines = {}
-		for i = 1, 12 do
-			local ln = Drawing.new("Line")
-			ln.Thickness = 1
-			ln.Color = Color3.fromRGB(235, 235, 240)
-			ln.Transparency = 0.85
-			ln.Visible = false
-			boneLines[i] = ln
-		end
-	end
-
-	local hl = mk("Highlight", {
-		FillTransparency = 0.75,
-		OutlineTransparency = 0,
-		FillColor = Color3.fromRGB(235, 235, 240),
-		OutlineColor = Color3.fromRGB(235, 235, 240),
-		Adornee = ch,
-	}, ch)
-	pcall(function() hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop end)
-
-	espCache[p] = { bill = bill, lbl = lbl, hl = hl, bone = boneLines }
+	-- 骨骼线不在这里创建：由刷新循环按需创建（勾选后立刻生效）
+	espCache[p] = { bill = bill, lbl = lbl }
 end
 
 task.spawn(function()
@@ -2438,7 +2406,19 @@ task.spawn(function()
 								end
 								rec.bill.Enabled = true
 							end
-							-- 骨骼：Head → 躯干 → 四肢
+							-- 骨骼：勾选时立即创建，取消时立即销毁
+							if Ext.espBone and Drawing and Drawing.new and not rec.bone then
+								local lines = {}
+								for i = 1, 12 do
+									local ln = Drawing.new("Line")
+									ln.Thickness = 1
+									ln.Color = Color3.fromRGB(235, 235, 240)
+									ln.Transparency = 0.85
+									ln.Visible = false
+									lines[i] = ln
+								end
+								rec.bone = lines
+							end
 							if rec.bone and Ext.espBone then
 								local cam = Workspace.CurrentCamera
 								local joints = {
@@ -2476,14 +2456,10 @@ task.spawn(function()
 									end
 								end
 							elseif rec.bone then
-								for _, ln in ipairs(rec.bone) do ln.Visible = false end
+								for _, ln in ipairs(rec.bone) do ln:Remove() end
+								rec.bone = nil
 							end
 
-							-- 方块用 Highlight 描边代替（没有 Drawing 也能看）
-							if rec.hl then
-								rec.hl.Enabled = Ext.espBox
-								if ch then rec.hl.Adornee = ch end
-							end
 						end
 					end
 				end
@@ -2491,7 +2467,6 @@ task.spawn(function()
 				for p, rec in pairs(espCache) do
 					if not p.Character or not p.Character:FindFirstChild("HumanoidRootPart") then
 						pcall(function() if rec.bill then rec.bill:Destroy() end end)
-						pcall(function() if rec.hl then rec.hl:Destroy() end end)
 						espCache[p] = nil
 					end
 				end
@@ -3536,12 +3511,6 @@ do
 		setChat(on)
 	end)
 
-	v.gap(10)
-	v.section("操作")
-	local g2 = v.grid()
-	card(g2, "导航点传送", "点一下向前传送 60 格", false, function()
-		safe(teleportForward)
-	end)
 end
 
 
@@ -3638,7 +3607,6 @@ do
 	card(g, "显示名字", "", Ext.espName, function(on) Ext.espName = on end)
 	card(g, "显示距离", "", Ext.espDist, function(on) Ext.espDist = on end)
 	card(g, "显示血量", "", Ext.espHp, function(on) Ext.espHp = on end)
-	card(g, "显示方块", "", Ext.espBox, function(on) Ext.espBox = on end)
 	card(g, "显示骨骼", "", Ext.espBone, function(on) Ext.espBone = on end)
 
 	local teamNames = {}
