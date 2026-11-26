@@ -457,12 +457,14 @@ local function makeGrip(side)
 
 	local dragging = false
 	local startSize, startPos, startMouse = nil, nil, nil
+	local dragTouch = nil
 
 	grip.InputBegan:Connect(function(input)
 		local hit = input.UserInputType == Enum.UserInputType.MouseButton1
 			or input.UserInputType == Enum.UserInputType.Touch
 		if not hit then return end
 		dragging = true
+		dragTouch = (input.UserInputType == Enum.UserInputType.Touch) and input or nil
 		startMouse = input.Position
 		startSize = panel.AbsoluteSize
 		startPos = panel.Position
@@ -470,6 +472,7 @@ local function makeGrip(side)
 
 	UIS.InputChanged:Connect(function(input)
 		if not dragging then return end
+		if dragTouch and input ~= dragTouch then return end
 		local isMove = input.UserInputType == Enum.UserInputType.MouseMovement
 			or input.UserInputType == Enum.UserInputType.Touch
 		if not isMove then return end
@@ -505,7 +508,7 @@ local function makeGrip(side)
 	UIS.InputEnded:Connect(function(input)
 		local up = input.UserInputType == Enum.UserInputType.MouseButton1
 			or input.UserInputType == Enum.UserInputType.Touch
-		if up then dragging = false end
+		if up and (not dragTouch or input == dragTouch) then dragging = false dragTouch = nil end
 	end)
 
 	return grip
@@ -537,12 +540,14 @@ local function bindEdge(kind)
 	end
 
 	local dragging, startSize, startPos, startMouse = false, nil, nil, nil
+	local dragTouch = nil
 
 	box.InputBegan:Connect(function(input)
 		local hit = input.UserInputType == Enum.UserInputType.MouseButton1
 			or input.UserInputType == Enum.UserInputType.Touch
 		if not hit then return end
 		dragging = true
+		dragTouch = (input.UserInputType == Enum.UserInputType.Touch) and input or nil
 		startMouse = input.Position
 		startSize = panel.AbsoluteSize
 		startPos = panel.Position
@@ -550,6 +555,7 @@ local function bindEdge(kind)
 
 	UIS.InputChanged:Connect(function(input)
 		if not dragging then return end
+		if dragTouch and input ~= dragTouch then return end
 		local isMove = input.UserInputType == Enum.UserInputType.MouseMovement
 			or input.UserInputType == Enum.UserInputType.Touch
 		if not isMove then return end
@@ -582,7 +588,7 @@ local function bindEdge(kind)
 	UIS.InputEnded:Connect(function(input)
 		local up = input.UserInputType == Enum.UserInputType.MouseButton1
 			or input.UserInputType == Enum.UserInputType.Touch
-		if up then dragging = false end
+		if up and (not dragTouch or input == dragTouch) then dragging = false dragTouch = nil end
 	end)
 end
 
@@ -667,11 +673,13 @@ local dragBoxes = {}   -- 需要随窗口变化的拖条
 local function bindDrag(box)
 	if not box then return end
 	local dragging, dragStart, startPos = false, nil, nil
+	local dragTouch = nil
 
 	box.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1
 			or input.UserInputType == Enum.UserInputType.Touch then
 			dragging = true
+			dragTouch = (input.UserInputType == Enum.UserInputType.Touch) and input or nil
 			dragStart = input.Position
 			startPos = panel.Position
 		end
@@ -679,6 +687,7 @@ local function bindDrag(box)
 
 	UIS.InputChanged:Connect(function(input)
 		if not dragging then return end
+		if dragTouch and input ~= dragTouch then return end
 		if input.UserInputType == Enum.UserInputType.MouseMovement
 			or input.UserInputType == Enum.UserInputType.Touch then
 			local dx = input.Position.X - dragStart.X
@@ -701,7 +710,7 @@ local function bindDrag(box)
 	UIS.InputEnded:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1
 			or input.UserInputType == Enum.UserInputType.Touch then
-			dragging = false
+			if not dragTouch or input == dragTouch then dragging = false dragTouch = nil end
 		end
 	end)
 end
@@ -922,6 +931,7 @@ local function sliderCard(grid, title, minVal, maxVal, step, cur, onChanged)
 	reg(knob, "BackgroundColor3", "accent")
 
 	local dragging = false
+	local dragTouch = nil
 
 	local function setValue(v)
 		v = math.clamp(v, minVal, maxVal)
@@ -966,11 +976,13 @@ local function sliderCard(grid, title, minVal, maxVal, step, cur, onChanged)
 		if input.UserInputType == Enum.UserInputType.MouseButton1
 			or input.UserInputType == Enum.UserInputType.Touch then
 			dragging = true
+			dragTouch = (input.UserInputType == Enum.UserInputType.Touch) and input or nil
 			fromX(input.Position.X)
 		end
 	end)
 	UIS.InputChanged:Connect(function(input)
 		if not dragging then return end
+		if dragTouch and input ~= dragTouch then return end
 		if input.UserInputType == Enum.UserInputType.MouseMovement
 			or input.UserInputType == Enum.UserInputType.Touch then
 			fromX(input.Position.X)
@@ -979,7 +991,7 @@ local function sliderCard(grid, title, minVal, maxVal, step, cur, onChanged)
 	UIS.InputEnded:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1
 			or input.UserInputType == Enum.UserInputType.Touch then
-			dragging = false
+			if not dragTouch or input == dragTouch then dragging = false dragTouch = nil end
 		end
 	end)
 
@@ -1363,26 +1375,36 @@ local function setFloating(on)
 	end)
 end
 
--- 点图标 → 恢复面板
+-- 点图标 → 恢复面板（拖动过就不算点击）
+local floatMoved = false
 floatBtn.MouseButton1Click:Connect(function()
+	if floatMoved then floatMoved = false return end
 	if collapsed then setFloating(false) end
 end)
 
 -- 图标也能拖动
 do
 	local dragging, startMouse, startPos = false, nil, nil
+	local dragTouch = nil
 	floatBtn.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1
 			or input.UserInputType == Enum.UserInputType.Touch then
 			dragging = true
+			dragTouch = (input.UserInputType == Enum.UserInputType.Touch) and input or nil
 			startMouse = input.Position
 			startPos = panel.Position
+			floatMoved = false
 		end
 	end)
 	UIS.InputChanged:Connect(function(input)
 		if not dragging or not collapsed then return end
+		if dragTouch and input ~= dragTouch then return end
 		if input.UserInputType == Enum.UserInputType.MouseMovement
 			or input.UserInputType == Enum.UserInputType.Touch then
+			if math.abs(input.Position.X - startMouse.X) > 6
+				or math.abs(input.Position.Y - startMouse.Y) > 6 then
+				floatMoved = true
+			end
 			panel.Position = UDim2.new(
 				startPos.X.Scale, startPos.X.Offset + (input.Position.X - startMouse.X),
 				startPos.Y.Scale, startPos.Y.Offset + (input.Position.Y - startMouse.Y))
@@ -1391,7 +1413,7 @@ do
 	UIS.InputEnded:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1
 			or input.UserInputType == Enum.UserInputType.Touch then
-			dragging = false
+			if not dragTouch or input == dragTouch then dragging = false dragTouch = nil end
 		end
 	end)
 end
@@ -1425,11 +1447,11 @@ reg(footer, "TextColor3", "sub")
 -- ============================================================
 local AntiCheatBypass = {
 	config = {
-		patchAntiCheat = true,
-		patchRatchet = true,
-		hookNamecall = true,
-		hookIndex = true,
-		selfGuard = true,
+		patchAntiCheat = false,
+		patchRatchet = false,
+		hookNamecall = false,
+		hookIndex = false,
+		selfGuard = false,
 	},
 
 	BLOCKED_EVENTS = {
@@ -3419,7 +3441,6 @@ do
 
 	bMax.MouseButton1Click:Connect(function()
 		zoomed = not zoomed
-		customSize = false
 		safe(function() bMax.Text = zoomed and "▣" or "□" end)
 		applyLayout()
 	end)
