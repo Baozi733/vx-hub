@@ -226,6 +226,7 @@ local zoomed = false      -- □ 放大状态（启动后设为 true = 全屏）
 local FLOAT_ICON = "rbxassetid://109221032399431"   -- EX HUD logo
 local customSize = false  -- 用户手动拖过大小后，applyLayout 不再覆盖
 local applyLayout          -- 前向声明：窗口按钮要用
+local selectClose          -- 前向声明：切页时要关掉下拉
 zoomed = false   -- 初始不放大（点开脚本后会设为 true）
 
 -- 计算当前应使用的尺寸（同时按屏幕做上限保护，绝不超出画面）
@@ -779,7 +780,7 @@ local function setSwitch(track, knob, isOn)
 end
 
 -- 卡片：标题 + 描述 + 开关
-local function card(grid, title, desc, isOn, onToggle)
+local function card(grid, title, desc, isOn, onToggle, asButton)
 	if currentViewId and title then
 		table.insert(SEARCH_INDEX, { page = currentViewId, title = title })
 	end
@@ -818,8 +819,11 @@ local function card(grid, title, desc, isOn, onToggle)
 		reg(sub, "TextColor3", "sub")
 	end
 
-	local track, knob = switchOnOff(cardFrame, isOn)
-	reg(track, "BackgroundColor3", isOn and "accent" or "track")
+	local track, knob
+	if not asButton then
+		track, knob = switchOnOff(cardFrame, isOn)
+		reg(track, "BackgroundColor3", isOn and "accent" or "track")
+	end
 
 	local active = isOn
 	local btn = mk("TextButton", {
@@ -829,6 +833,11 @@ local function card(grid, title, desc, isOn, onToggle)
 	}, cardFrame)
 
 	btn.MouseButton1Click:Connect(function()
+		if asButton then
+			-- 按钮模式：点击即执行（无开关、无反馈）
+			if onToggle then safe(onToggle) end
+			return
+		end
 		active = not active
 		setSwitch(track, knob, active)
 		-- 描边保持原色，不再变成白色高亮
@@ -838,7 +847,7 @@ local function card(grid, title, desc, isOn, onToggle)
 	return cardFrame, {
 		set = function(v)
 			active = v
-			setSwitch(track, knob, v)
+			if track and knob then setSwitch(track, knob, v) end
 		end,
 		get = function() return active end,
 		sub = sub,
@@ -1309,6 +1318,7 @@ local function setFloating(on)
 	collapsed = on
 	safe(function()
 		if on then
+			safe(selectClose)
 			panel.Size = UDim2.fromOffset(56, 56)
 			nav.Visible = false
 			scroller.Visible = false
@@ -2091,6 +2101,7 @@ local Ext = {
 	fovDist = 400, fovThick = 2, bulletPart = "Head",
 	-- 逃犯
 	evade = false, evadeRange = 120, evadeTpRange = 60,
+	tpPlace = "警察局",
 	-- 警察
 	cuff = false, cuffTp = false, globalTp = false, arrest = false, policeCombat = false,
 	-- 透视
@@ -2715,6 +2726,225 @@ local function pickerCard(grid, title, desc, options, multi, getSel, onChange)
 end
 
 -- ============================================================
+-- 下拉行选择器：左标签 + 右侧当前值 + 竖线 + ⌃⌄，整行可点
+--   选项列表在行下方展开（覆盖式浮层，不改变页面布局）
+-- ============================================================
+local selectOpen = nil
+
+function selectClose()
+	if selectOpen then
+		pcall(function() selectOpen:Destroy() end)
+		selectOpen = nil
+	end
+end
+
+local function selectCard(grid, title, options, multi, getSel, onChange)
+	local row = mk("Frame", {
+		Name = "SelectRow",
+		Size = UDim2.new(0.5, -6, 0, 46),
+		BackgroundColor3 = pal.panel,
+		BorderSizePixel = 0,
+	}, grid)
+	mk("UICorner", { CornerRadius = UDim.new(0, 6) }, row)
+	local stroke = mk("UIStroke", { Thickness = 1 }, row)
+	reg(stroke, "Color", "line")
+	stroke.Transparency = 0.6
+	reg(row, "BackgroundColor3", "panel")
+
+	local lbl = mk("TextLabel", {
+		Size = UDim2.new(1, -120, 0, 18),
+		Position = UDim2.new(0, 12, 0.5, -9),
+		BackgroundTransparency = 1,
+		Font = Enum.Font.Gotham,
+		TextSize = 13,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		Text = title,
+	}, row)
+	reg(lbl, "TextColor3", "text")
+
+	local val = mk("TextLabel", {
+		Size = UDim2.new(1, -80, 0, 18),
+		Position = UDim2.new(0, 12, 0.5, -9),
+		BackgroundTransparency = 1,
+		Font = Enum.Font.Gotham,
+		TextSize = 13,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		Text = "",
+	}, row)
+	reg(val, "TextColor3", "sub")
+
+	local div = mk("Frame", {
+		Size = UDim2.fromOffset(1, 14),
+		Position = UDim2.new(1, -30, 0.5, -7),
+		BackgroundColor3 = pal.line,
+		BorderSizePixel = 0,
+	}, row)
+	reg(div, "BackgroundColor3", "line")
+	div.BackgroundTransparency = 0.45
+
+	local chev = mk("Frame", {
+		Size = UDim2.fromOffset(10, 16),
+		Position = UDim2.new(1, -22, 0.5, -8),
+		BackgroundTransparency = 1,
+	}, row)
+
+	local function chevLine(x, y, rot)
+		local f = mk("Frame", {
+			Size = UDim2.fromOffset(6, 1),
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromOffset(x, y),
+			BackgroundColor3 = pal.sub,
+			BorderSizePixel = 0,
+			Rotation = rot,
+		}, chev)
+		reg(f, "BackgroundColor3", "sub")
+	end
+	chevLine(3, 5, -45)
+	chevLine(7, 5, 45)
+	chevLine(3, 11, 45)
+	chevLine(7, 11, -45)
+
+	local function optionList()
+		return type(options) == "function" and options() or options
+	end
+
+	local function refreshValue()
+		local sel = getSel()
+		local txt
+		if multi then
+			local picked = {}
+			for _, o in ipairs(optionList() or {}) do
+				if sel and sel[o] ~= false then table.insert(picked, o) end
+			end
+			txt = #picked > 0 and table.concat(picked, ", ") or "未选择"
+		else
+			txt = tostring(sel or "")
+		end
+		val.Text = txt
+	end
+	refreshValue()
+
+	local function openList()
+		selectClose()
+		local list = optionList()
+		if not list or #list == 0 then return end
+
+		local panelPos = panel.AbsolutePosition
+		local rowPos = row.AbsolutePosition
+		local rowSize = row.AbsoluteSize
+		local h = math.min(#list * 26 + 10, 220)
+
+		local box = mk("Frame", {
+			Name = "SelectList",
+			Size = UDim2.fromOffset(rowSize.X, h),
+			Position = UDim2.fromOffset(rowPos.X - panelPos.X,
+				rowPos.Y - panelPos.Y + rowSize.Y + 4),
+			BackgroundColor3 = pal.panel,
+			BorderSizePixel = 0,
+			ZIndex = 110,
+		}, panel)
+		mk("UICorner", { CornerRadius = UDim.new(0, 6) }, box)
+		local bs = mk("UIStroke", { Thickness = 1 }, box)
+		bs.Color = pal.line
+		reg(box, "BackgroundColor3", "panel")
+		selectOpen = box
+
+		local scroll = mk("ScrollingFrame", {
+			Size = UDim2.new(1, -8, 1, -8),
+			Position = UDim2.fromOffset(4, 4),
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			ScrollBarThickness = 3,
+			CanvasSize = UDim2.new(0, 0, 0, #list * 26),
+			ZIndex = 111,
+		}, box)
+
+		for i, opt in ipairs(list) do
+			local item = mk("TextButton", {
+				Size = UDim2.new(1, 0, 0, 26),
+				Position = UDim2.fromOffset(0, (i - 1) * 26),
+				BackgroundColor3 = pal.soft,
+				BackgroundTransparency = 0.75,
+				Text = "",
+				ZIndex = 112,
+			}, scroll)
+			mk("UICorner", { CornerRadius = UDim.new(0, 4) }, item)
+			reg(item, "BackgroundColor3", "soft")
+
+			local tl = mk("TextLabel", {
+				Size = UDim2.new(1, -28, 1, 0),
+				Position = UDim2.fromOffset(8, 0),
+				BackgroundTransparency = 1,
+				Font = Enum.Font.Gotham,
+				TextSize = 12,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				TextTruncate = Enum.TextTruncate.AtEnd,
+				Text = opt,
+				ZIndex = 113,
+			}, item)
+			reg(tl, "TextColor3", "text")
+
+			local tick = mk("TextLabel", {
+				Size = UDim2.fromOffset(20, 26),
+				Position = UDim2.new(1, -22, 0, 0),
+				BackgroundTransparency = 1,
+				Font = Enum.Font.GothamBold,
+				TextSize = 12,
+				Text = "",
+				ZIndex = 113,
+			}, item)
+			reg(tick, "TextColor3", "accent")
+
+			if multi then
+				local sel = getSel()
+				tick.Text = (sel and sel[opt] ~= false) and "✓" or ""
+			end
+
+			item.MouseButton1Click:Connect(function()
+				if multi then
+					local sel = getSel()
+					sel[opt] = (sel[opt] == false)
+					tick.Text = sel[opt] and "✓" or ""
+					refreshValue()
+					if onChange then safe(onChange) end
+				else
+					if onChange then safe(onChange, opt) end
+					refreshValue()
+					selectClose()
+				end
+			end)
+		end
+	end
+
+	local hit = mk("TextButton", {
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		Text = "",
+		ZIndex = 5,
+	}, row)
+	hit.MouseButton1Click:Connect(function()
+		safe(function()
+			stroke.Transparency = 0.2
+			if selectOpen then
+				selectClose()
+			else
+				openList()
+			end
+			task.delay(0.2, function()
+				safe(function() stroke.Transparency = 0.6 end)
+			end)
+		end)
+	end)
+
+	return {
+		refresh = refreshValue,
+		close = selectClose,
+	}
+end
+
+-- ============================================================
 -- 7. 一键破解
 -- ============================================================
 local Hack = { patched = {}, order = {}, flags = {} }
@@ -3075,6 +3305,7 @@ end)
 -- ============================================================
 local function show(id)
 	curView = id
+	safe(selectClose)          -- 切页时收起未关闭的下拉列表
 	for vid, v in pairs(views) do
 		safe(function() v.frame.Visible = (vid == id) end)
 	end
@@ -3368,7 +3599,7 @@ do
 	sliderCard(g2, "子弹追敌距离", 50, 1000, 25, Ext.fovDist, function(v2)
 		Ext.fovDist = v2
 	end)
-	pickerCard(g2, "子弹部位", "选头部或身体", { "Head", "Torso" }, false,
+	selectCard(g2, "子弹部位", { "Head", "Torso" }, false,
 		function() return Ext.bulletPart end,
 		function(opt) Ext.bulletPart = opt end)
 end
@@ -3415,7 +3646,7 @@ do
 	local keyByLabel = {}
 	for _, t in ipairs(TEAM_KEYS) do keyByLabel[t.label] = t.key end
 
-	pickerCard(g, "透视队伍", "可选多个职业", teamNames, true,
+	selectCard(g, "透视队伍", teamNames, true,
 		function() return Ext.espTeams end,
 		function() end)
 end
@@ -3437,22 +3668,23 @@ do
 	end
 	refreshNames()
 
-	pickerCard(g, "选择玩家", "点一下刷新列表", {}, false,
+	local function playerNames()
+		local list = {}
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p ~= LP then table.insert(list, p.Name) end
+		end
+		return list
+	end
+	local playerCard = selectCard(g, "选择玩家", playerNames, false,
 		function() return Ext.tpTarget and Ext.tpTarget.Name or "" end,
-		function(name)
-			Ext.tpTarget = Players:FindFirstChild(name)
-		end)
+		function(name) Ext.tpTarget = Players:FindFirstChild(name) end)
 
 	card(g, "刷新玩家列表", "重新读取在线玩家", false, function()
 		refreshNames()
-		safe(function()
-			openPicker("选择玩家", playerNames, false,
-				function() return Ext.tpTarget and Ext.tpTarget.Name or "" end,
-				function(name) Ext.tpTarget = Players:FindFirstChild(name) end)
-		end)
+		safe(function() playerCard.refresh() end)
 	end)
 
-	pickerCard(g, "传送方向", "相对目标的位置", { "前面", "后面", "左边", "右边" }, false,
+	selectCard(g, "传送方向", { "前面", "后面", "左边", "右边" }, false,
 		function() return Ext.tpDir end,
 		function(opt) Ext.tpDir = opt end)
 
@@ -3474,14 +3706,20 @@ do
 	v.gap(10)
 	v.section("地点传送")
 	local g2 = v.grid()
-	card(g2, "警察局", "传送到警察局", false, function()
-		safe(function() teleportToPlace("policestation") end)
-		safe(function() teleportToPlace("警察局") end)
-	end)
-	card(g2, "医院", "传送到医院", false, function()
-		safe(function() teleportToPlace("hospital") end)
-		safe(function() teleportToPlace("医院") end)
-	end)
+	selectCard(g2, "传送地点", { "警察局", "医院" }, false,
+		function() return Ext.tpPlace end,
+		function(opt) Ext.tpPlace = opt end)
+
+	card(g2, "传送", "传送到选中地点", false, function()
+		local place = Ext.tpPlace or "警察局"
+		if place == "医院" then
+			safe(function() teleportToPlace("hospital") end)
+			safe(function() teleportToPlace("医院") end)
+		else
+			safe(function() teleportToPlace("policestation") end)
+			safe(function() teleportToPlace("警察局") end)
+		end
+	end, true)
 end
 
 
@@ -3495,7 +3733,7 @@ do
 	for _, name in ipairs(SHOP_ITEMS) do
 		Ext.shopSel[name] = true
 	end
-	pickerCard(g, "黑市物品", "可多选，点卡片展开", SHOP_ITEMS, true,
+	selectCard(g, "黑市物品", SHOP_ITEMS, true,
 		function() return Ext.shopSel end,
 		function() end)
 
@@ -3511,7 +3749,7 @@ do
 	for _, name in ipairs(WEAPONS) do
 		Ext.weaponSel[name] = true
 	end
-	pickerCard(g2, "选择武器", "MP5 / M4A1 可多选", WEAPONS, true,
+	selectCard(g2, "选择武器", WEAPONS, true,
 		function() return Ext.weaponSel end,
 		function() end)
 
@@ -3519,7 +3757,7 @@ do
 		for _, name in ipairs(WEAPONS) do
 			if Ext.weaponSel[name] ~= false then equipWeapon(name) end
 		end
-	end)
+	end, true)
 end
 
 
