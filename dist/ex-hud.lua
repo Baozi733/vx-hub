@@ -880,14 +880,16 @@ local function sliderCard(grid, title, minVal, maxVal, step, cur, onChanged)
 	}, cardFrame)
 	reg(lbl, "TextColor3", "text")
 
-	local valLbl = mk("TextLabel", {
-		Size = UDim2.fromOffset(VALUE_W, 16),
-		Position = UDim2.new(1, -(CARD_PAD_RIGHT + VALUE_W), 0, 5),
+	local curVal = cur
+	local valLbl = mk("TextBox", {
+		Size = UDim2.fromOffset(VALUE_W + 10, 18),
+		Position = UDim2.new(1, -(CARD_PAD_RIGHT + VALUE_W + 5), 0, 4),
 		BackgroundTransparency = 1,
 		Font = Enum.Font.Gotham,
 		TextSize = 13,
 		TextXAlignment = Enum.TextXAlignment.Right,
 		Text = string.format("%.1f", cur),
+		ClearTextOnFocus = false,
 	}, cardFrame)
 	reg(valLbl, "TextColor3", "accent")
 
@@ -930,10 +932,21 @@ local function sliderCard(grid, title, minVal, maxVal, step, cur, onChanged)
 		local r = (v - minVal) / (maxVal - minVal)
 		fill.Size = UDim2.new(r, 0, 1, 0)
 		knob.Position = UDim2.new(r, 0, 0.5, 0)
+		curVal = v
 		valLbl.Text = string.format("%.1f", v)
 		if onChanged then safe(onChanged, v) end
 		return v
 	end
+
+	-- 点击数字 → 直接输入想要的数值，回车/失焦生效
+	valLbl.FocusLost:Connect(function()
+		local n = tonumber(valLbl.Text)
+		if n then
+			setValue(n)
+		else
+			valLbl.Text = string.format("%.1f", curVal)
+		end
+	end)
 
 	local function fromX(x)
 		local absX = track.AbsolutePosition.X
@@ -3201,8 +3214,12 @@ end
 
 task.spawn(function()
 	while running do
-		refreshPromptCache()
-		task.wait(2)
+		if state.interactOn or Main.autoMoney then
+			refreshPromptCache()
+			task.wait(1.5)
+		else
+			task.wait(1)
+		end
 	end
 end)
 
