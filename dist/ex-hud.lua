@@ -2365,7 +2365,7 @@ local function buildEsp(p)
 		Name = "EXESP",
 		AlwaysOnTop = true,
 		Enabled = true,
-		MaxDistance = 1e6,
+		MaxDistance = 10000,
 		Size = UDim2.fromOffset(150, 40),
 		StudsOffset = Vector3.new(0, 3.2, 0),
 		Adornee = r,
@@ -2383,18 +2383,39 @@ local function buildEsp(p)
 	espCache[p] = { bill = bill, lbl = lbl }
 end
 
+-- 骨骼关节与连线表（提到循环外，避免每帧重复创建造成卡顿）
+local ESP_JOINTS = {
+	"Head", "UpperTorso", "LowerTorso",
+	"LeftUpperArm", "LeftLowerArm", "LeftHand",
+	"RightUpperArm", "RightLowerArm", "RightHand",
+	"LeftUpperLeg", "LeftLowerLeg", "LeftFoot",
+	"RightUpperLeg", "RightLowerLeg", "RightFoot",
+}
+local ESP_BONE_PAIRS = {
+	{ "Head", "UpperTorso" }, { "UpperTorso", "LowerTorso" },
+	{ "UpperTorso", "LeftUpperArm" }, { "LeftUpperArm", "LeftLowerArm" },
+	{ "LeftLowerArm", "LeftHand" },
+	{ "UpperTorso", "RightUpperArm" }, { "RightUpperArm", "RightLowerArm" },
+	{ "RightLowerArm", "RightHand" },
+	{ "LowerTorso", "LeftUpperLeg" }, { "LeftUpperLeg", "LeftLowerLeg" },
+	{ "LeftLowerLeg", "LeftFoot" },
+	{ "LowerTorso", "RightUpperLeg" }, { "RightUpperLeg", "RightLowerLeg" },
+	{ "RightLowerLeg", "RightFoot" },
+}
+
+local espCharsFolder = Workspace:FindFirstChild("Characters")
+
 task.spawn(function()
 	while running do
 		if Ext.espOn then
 			safe(function()
 				local myR = myRoot()
-				local charsFolder = Workspace:FindFirstChild("Characters")
 				for _, p in ipairs(Players:GetPlayers()) do
 					if p ~= LP and teamOk(p) then
 						if not espCache[p] then buildEsp(p) end
 						local rec = espCache[p]
 						if rec then
-							local ch = p.Character or (charsFolder and charsFolder:FindFirstChild(p.Name))
+							local ch = p.Character or (espCharsFolder and espCharsFolder:FindFirstChild(p.Name))
 							local r = ch and ch:FindFirstChild("HumanoidRootPart")
 							local hum = ch and ch:FindFirstChildOfClass("Humanoid")
 							if rec.bill and r then
@@ -2429,30 +2450,13 @@ task.spawn(function()
 							end
 							if rec.bone and Ext.espBone then
 								local cam = Workspace.CurrentCamera
-								local joints = {
-									"Head", "UpperTorso", "LowerTorso",
-									"LeftUpperArm", "LeftLowerArm", "LeftHand",
-									"RightUpperArm", "RightLowerArm", "RightHand",
-									"LeftUpperLeg", "LeftLowerLeg", "LeftFoot",
-									"RightUpperLeg", "RightLowerLeg", "RightFoot",
-								}
 								local pos = {}
-								for _, jn in ipairs(joints) do
+								for _, jn in ipairs(ESP_JOINTS) do
 									local jp = ch and ch:FindFirstChild(jn)
 									local scr = jp and cam and cam:WorldToViewportPoint(jp.Position)
 									pos[jn] = scr and Vector2.new(scr.X, scr.Y) or nil
 								end
-								local pairsList = {
-									{ "Head", "UpperTorso" }, { "UpperTorso", "LowerTorso" },
-									{ "UpperTorso", "LeftUpperArm" }, { "LeftUpperArm", "LeftLowerArm" },
-									{ "LeftLowerArm", "LeftHand" },
-									{ "UpperTorso", "RightUpperArm" }, { "RightUpperArm", "RightLowerArm" },
-									{ "RightLowerArm", "RightHand" },
-									{ "LowerTorso", "LeftUpperLeg" }, { "LeftUpperLeg", "LeftLowerLeg" },
-									{ "LeftLowerLeg", "LeftFoot" },
-									{ "LowerTorso", "RightUpperLeg" },
-								}
-								for idx, pr in ipairs(pairsList) do
+								for idx, pr in ipairs(ESP_BONE_PAIRS) do
 									local ln = rec.bone[idx]
 									local a, b = pos[pr[1]], pos[pr[2]]
 									if ln and a and b then
@@ -2473,7 +2477,7 @@ task.spawn(function()
 				end
 				-- 清理失效的
 				for p, rec in pairs(espCache) do
-					local c2 = p.Character or (charsFolder and charsFolder:FindFirstChild(p.Name))
+					local c2 = p.Character or (espCharsFolder and espCharsFolder:FindFirstChild(p.Name))
 					if not c2 or not c2:FindFirstChild("HumanoidRootPart") then
 						pcall(function() if rec.bill then rec.bill:Destroy() end end)
 						espCache[p] = nil
