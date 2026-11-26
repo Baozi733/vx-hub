@@ -3419,6 +3419,7 @@ do
 
 	bMax.MouseButton1Click:Connect(function()
 		zoomed = not zoomed
+		customSize = false
 		safe(function() bMax.Text = zoomed and "▣" or "□" end)
 		applyLayout()
 	end)
