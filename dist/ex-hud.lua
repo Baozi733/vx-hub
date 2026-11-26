@@ -888,7 +888,7 @@ local function sliderCard(grid, title, minVal, maxVal, step, cur, onChanged)
 		Font = Enum.Font.Gotham,
 		TextSize = 13,
 		TextXAlignment = Enum.TextXAlignment.Right,
-		Text = string.format("%.1f", cur),
+		Text = (cur < 1) and string.format("%.2f", cur) or string.format("%.1f", cur),
 		ClearTextOnFocus = false,
 	}, cardFrame)
 	reg(valLbl, "TextColor3", "accent")
@@ -933,7 +933,7 @@ local function sliderCard(grid, title, minVal, maxVal, step, cur, onChanged)
 		fill.Size = UDim2.new(r, 0, 1, 0)
 		knob.Position = UDim2.new(r, 0, 0.5, 0)
 		curVal = v
-		valLbl.Text = string.format("%.1f", v)
+		valLbl.Text = (v < 1) and string.format("%.2f", v) or string.format("%.1f", v)
 		if onChanged then safe(onChanged, v) end
 		return v
 	end
@@ -944,7 +944,7 @@ local function sliderCard(grid, title, minVal, maxVal, step, cur, onChanged)
 		if n then
 			setValue(n)
 		else
-			valLbl.Text = string.format("%.1f", curVal)
+			valLbl.Text = (curVal < 1) and string.format("%.2f", curVal) or string.format("%.1f", curVal)
 		end
 	end)
 
@@ -1905,7 +1905,7 @@ task.spawn(function()
 				end
 			end)
 		end
-		task.wait(0.15)
+		task.wait(0.25)
 	end
 end)
 
@@ -2497,10 +2497,10 @@ task.spawn(function()
 					end
 				end
 			end)
-			task.wait(0.4)
+			task.wait(0.6)
 		else
 			if next(espCache) then safe(clearEsp) end
-			task.wait(0.8)
+			task.wait(1.5)
 		end
 	end
 end)
@@ -3173,9 +3173,9 @@ local function flyStart()
 	hum.PlatformStand = true
 	hum.AutoRotate = false
 
-	flyConn = RunService.RenderStepped:Connect(function()
+	local function flyTick()
 		if not state.fly then flyStop() return end
-		safe(function()
+		local ok, err = pcall(function()
 			local cam = Workspace.CurrentCamera
 			local _, h, r = getChar()
 			if not cam or not r or not flyVel then return end
@@ -3188,7 +3188,10 @@ local function flyStart()
 			flyVel.Velocity = (dir + Vector3.new(0, up, 0)) * spd
 			flyGyro.CFrame = cam.CFrame
 		end)
-	end)
+		if not ok and not Guard.quiet then warn(TAG .. " 飞行：" .. tostring(err)) end
+	end
+
+	flyConn = RunService.RenderStepped:Connect(flyTick)
 end
 
 -- ============================================================
@@ -3256,7 +3259,7 @@ task.spawn(function()
 			end)
 			task.wait(math.max(0.1, state.interactSec))
 		else
-			task.wait(0.5)
+			task.wait(0.8)
 		end
 	end
 end)
@@ -3277,11 +3280,11 @@ end)
 task.spawn(function()
 	while running do
 		if state.borderOn and state.rainbowOn then
-			safe(function()
-				border.Color = Color3.fromHSV((tick() % 6) / 6, 1, 1)
-			end)
+			border.Color = Color3.fromHSV((tick() % 6) / 6, 1, 1)
+			task.wait(0.1)
+		else
+			task.wait(0.5)
 		end
-		task.wait(0.05)
 	end
 end)
 
@@ -3440,7 +3443,7 @@ do
 	card(g1, "跳跃修改", "开启跳跃高度修改", state.jumpOn, function(on)
 		state.jumpOn = on
 	end)
-	sliderCard(g1, "跳跃高度", 0.1, 10.0, 0.1, state.jump, function(v2)
+	sliderCard(g1, "跳跃高度", 0.01, 10.0, 0.1, state.jump, function(v2)
 		state.jump = v2
 	end)
 
@@ -3452,7 +3455,7 @@ do
 		if on then safe(flyStart) else safe(flyStop) end
 	end)
 
-	sliderCard(g1, "飞行速度(格/秒)", 20, 400, 5, state.flySpeedValue, function(v2)
+	sliderCard(g1, "飞行速度(格/秒)", 0.01, 400, 5, state.flySpeedValue, function(v2)
 		state.flySpeedValue = v2
 	end)
 	card(g1, "穿墙", "", state.noclip, function(on)
@@ -3462,7 +3465,7 @@ do
 	card(g1, "互动", "", state.interactOn, function(on)
 		state.interactOn = on
 	end)
-	sliderCard(g1, "互动时间(秒)", 0.1, 10.0, 0.1, state.interactSec, function(v2)
+	sliderCard(g1, "互动时间(秒)", 0.01, 10.0, 0.1, state.interactSec, function(v2)
 		state.interactSec = v2
 	end)
 end
@@ -3565,13 +3568,13 @@ do
 	card(g, "战斗检测", "只打战斗状态目标", Ext.auraCombat, function(on)
 		Ext.auraCombat = on
 	end)
-	sliderCard(g, "攻击范围", 20, 400, 5, Ext.auraRange, function(v2)
+	sliderCard(g, "攻击范围", 0.01, 400, 5, Ext.auraRange, function(v2)
 		Ext.auraRange = v2
 	end)
 	card(g, "多目标攻击", "同时打多个目标", Ext.auraMulti, function(on)
 		Ext.auraMulti = on
 	end)
-	sliderCard(g, "伤害倍数", 1, 30, 1, Ext.auraDamage, function(v2)
+	sliderCard(g, "伤害倍数", 0.01, 30, 1, Ext.auraDamage, function(v2)
 		Ext.auraDamage = v2
 	end)
 
@@ -3589,13 +3592,13 @@ do
 	card(g2, "显示FOV圈", "屏幕上画准心圈", Ext.showFov, function(on)
 		Ext.showFov = on
 	end)
-	sliderCard(g2, "FOV范围", 50, 600, 10, Ext.fovRange, function(v2)
+	sliderCard(g2, "FOV范围", 0.01, 600, 10, Ext.fovRange, function(v2)
 		Ext.fovRange = v2
 	end)
-	sliderCard(g2, "FOV圈厚度", 1, 6, 1, Ext.fovThick, function(v2)
+	sliderCard(g2, "FOV圈厚度", 0.01, 6, 1, Ext.fovThick, function(v2)
 		Ext.fovThick = v2
 	end)
-	sliderCard(g2, "子弹追敌距离", 50, 1000, 25, Ext.fovDist, function(v2)
+	sliderCard(g2, "子弹追敌距离", 0.01, 1000, 25, Ext.fovDist, function(v2)
 		Ext.fovDist = v2
 	end)
 	selectCard(g2, "子弹部位", { "Head", "Torso" }, false,
@@ -3615,10 +3618,10 @@ do
 	card(g, "躲避警察", "警察靠近自动闪走", Ext.evade, function(on)
 		Ext.evade = on
 	end)
-	sliderCard(g, "检测范围", 30, 400, 10, Ext.evadeRange, function(v2)
+	sliderCard(g, "检测范围", 0.01, 400, 10, Ext.evadeRange, function(v2)
 		Ext.evadeRange = v2
 	end)
-	sliderCard(g, "传送范围", 20, 300, 10, Ext.evadeTpRange, function(v2)
+	sliderCard(g, "传送范围", 0.01, 300, 10, Ext.evadeTpRange, function(v2)
 		Ext.evadeTpRange = v2
 	end)
 end
@@ -3686,7 +3689,7 @@ do
 		function() return Ext.tpDir end,
 		function(opt) Ext.tpDir = opt end)
 
-	sliderCard(g, "传送距离", 1, 50, 1, Ext.tpDist, function(v2)
+	sliderCard(g, "传送距离", 0.01, 50, 1, Ext.tpDist, function(v2)
 		Ext.tpDist = v2
 	end)
 
