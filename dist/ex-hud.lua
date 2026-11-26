@@ -688,6 +688,11 @@ local function bindDrag(box)
 	UIS.InputChanged:Connect(function(input)
 		if not dragging then return end
 		if dragTouch and input ~= dragTouch then return end
+		if box == scroller then
+			local adx = math.abs(input.Position.X - dragStart.X)
+			local ady = math.abs(input.Position.Y - dragStart.Y)
+			if ady > 8 and ady > adx then dragging = false return end
+		end
 		if input.UserInputType == Enum.UserInputType.MouseMovement
 			or input.UserInputType == Enum.UserInputType.Touch then
 			local dx = input.Position.X - dragStart.X
@@ -726,6 +731,7 @@ local navDrag = mk("TextButton", {
 }, nav)
 bindDrag(navDrag)
 table.insert(dragBoxes, { box = navDrag, kind = "nav" })
+bindDrag(nav)        -- sidebar blank area can drag
 
 -- 拖条 2：内容区标题栏（避开右侧三个按钮）
 local headDrag = mk("TextButton", {
@@ -738,6 +744,8 @@ local headDrag = mk("TextButton", {
 }, panel)
 bindDrag(headDrag)
 table.insert(dragBoxes, { box = headDrag, kind = "head" })
+bindDrag(panel)     -- panel any blank area can drag
+bindDrag(scroller)  -- content area: horizontal drag moves panel, vertical scrolls
 
 -- 顶部时钟（HTML 里固定在顶部中间）
 local clock = mk("TextLabel", {
