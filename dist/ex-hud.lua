@@ -2353,16 +2353,23 @@ local function teamOk(p)
 end
 
 local function buildEsp(p)
+	-- 远距离时 p.Character 可能为空（被 streaming 剔除），用 Characters 文件夹兜底
 	local ch = p.Character
+	if not ch then
+		local folder = Workspace:FindFirstChild("Characters")
+		ch = folder and folder:FindFirstChild(p.Name)
+	end
 	local r = ch and ch:FindFirstChild("HumanoidRootPart")
 	if not r then return end
 	local bill = mk("BillboardGui", {
 		Name = "EXESP",
 		AlwaysOnTop = true,
+		Enabled = true,
+		MaxDistance = 1e6,
 		Size = UDim2.fromOffset(150, 40),
 		StudsOffset = Vector3.new(0, 3.2, 0),
 		Adornee = r,
-	}, ch)
+	}, LP:FindFirstChild("PlayerGui") or ch)
 	local lbl = mk("TextLabel", {
 		Size = UDim2.fromScale(1, 1),
 		BackgroundTransparency = 1,
@@ -2381,12 +2388,13 @@ task.spawn(function()
 		if Ext.espOn then
 			safe(function()
 				local myR = myRoot()
+				local charsFolder = Workspace:FindFirstChild("Characters")
 				for _, p in ipairs(Players:GetPlayers()) do
-					if p ~= LP and p.Character and teamOk(p) then
+					if p ~= LP and teamOk(p) then
 						if not espCache[p] then buildEsp(p) end
 						local rec = espCache[p]
 						if rec then
-							local ch = p.Character
+							local ch = p.Character or (charsFolder and charsFolder:FindFirstChild(p.Name))
 							local r = ch and ch:FindFirstChild("HumanoidRootPart")
 							local hum = ch and ch:FindFirstChildOfClass("Humanoid")
 							if rec.bill and r then
@@ -2465,7 +2473,8 @@ task.spawn(function()
 				end
 				-- 清理失效的
 				for p, rec in pairs(espCache) do
-					if not p.Character or not p.Character:FindFirstChild("HumanoidRootPart") then
+					local c2 = p.Character or (charsFolder and charsFolder:FindFirstChild(p.Name))
+					if not c2 or not c2:FindFirstChild("HumanoidRootPart") then
 						pcall(function() if rec.bill then rec.bill:Destroy() end end)
 						espCache[p] = nil
 					end
